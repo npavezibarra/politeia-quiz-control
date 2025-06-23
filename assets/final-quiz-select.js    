@@ -1,0 +1,25 @@
+jQuery(document).ready(function($) {
+    console.log('Final Quiz Select2 initialized');
+
+    $('#politeia_final_quiz_select').select2({
+        ajax: {
+            url: PoliteiaFinalQuizSelect.ajax_url,
+            dataType: 'json',
+            delay: 250,
+            data: function (params) {
+                return {
+                    action: 'politeia_search_final_quizzes',
+                    nonce: PoliteiaFinalQuizSelect.nonce,
+                    q: params.term
+                };
+            },
+            processResults: function (data) {
+                return { results: data };
+            },
+            cache: true
+        },
+        placeholder: 'Search for a quiz...',
+        minimumInputLength: 2,
+        width: 'resolve'
+    });
+});
