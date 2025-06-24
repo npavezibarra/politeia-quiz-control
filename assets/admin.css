@@ -1,0 +1,27 @@
+/* admin.css – Ajustes mínimos para los <select> Select2 de los metaboxes First y Final Quiz */
+
+.pqc-select2 {
+    width: 100% !important; /* Select2 necesita width explícito */
+    max-width: 400px;
+  }
+  
+  /* Separación visual en el metabox */
+  .pqc-select2 + .select2-container {
+    margin-top: 4px;
+  }
+  
+  /* Ajuste del contenedor para que ocupe todo el ancho disponible en el metabox */
+  .select2-container {
+    width: 100% !important;
+  }
+  
+  /* Consistencia de tipografía con el admin */
+  .select2-selection__rendered {
+    line-height: 1.4;
+  }
+  
+  /* Altura compacta del control */
+  .select2-selection--single {
+    height: 32px;
+  }
+  
