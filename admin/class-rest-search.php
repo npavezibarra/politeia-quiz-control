@@ -2,6 +2,13 @@
 /**
  * Clase PQC_REST_Search
  * @package PoliteiaQuizControl
+ * PQC_REST_Search crea y gestiona el endpoint REST que alimenta los campos Select2 del plugin. 
+ * Al instanciarse, registra la ruta /wp-json/politeia-quiz-control/v1/quiz-search, accesible mediante peticiones GET. 
+ * El endpoint acepta dos parámetros (term y page), verifica que el usuario tenga la capacidad edit_posts, 
+ * ejecuta una consulta WP_Query paginada sobre los quizzes publicados (sfwd-quiz) y devuelve un JSON compacto 
+ * con la forma { results: [ {id, text}, … ], more: bool }. Esa respuesta encaja con la firma que Select2 espera 
+ * para autocompletar, permitiendo buscar y paginar miles de quizzes sin recargar la pantalla y 
+ * sin exponer datos a usuarios sin permisos.
  */
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
