@@ -38,6 +38,7 @@ class PQC_Bootstrap {
 
     public function __construct() {
         add_action( 'plugins_loaded',       [ $this, 'load_textdomain' ] );
+        add_action( 'wp_enqueue_scripts',   [ $this, 'enqueue_frontend_assets' ] );
         add_action( 'admin_enqueue_scripts',[ $this, 'enqueue_admin_assets' ] );
         add_action( 'init',                 [ $this, 'load_admin_classes' ], 20 );
     }
@@ -52,6 +53,16 @@ class PQC_Bootstrap {
     /**
      * Encola CSS/JS sólo en la edición de cursos.
      */
+
+    public function enqueue_frontend_assets(): void {
+        wp_enqueue_style(
+            'pqc-style',
+            PQC_PLUGIN_URL . 'assets/style.css',
+            [],               // dependencias
+            PQC_VERSION       // versión cache-busting
+        );
+    }
+
     public function enqueue_admin_assets( string $hook ) : void {
         if ( ! in_array( $hook, [ 'post.php', 'post-new.php' ], true ) ) {
             return;
