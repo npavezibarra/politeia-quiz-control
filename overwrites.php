@@ -66,3 +66,5 @@ add_filter( 'learndash_template', function( $filepath, $filename ) {
     }
     return $filepath;
 }, 10, 2 );
+
+

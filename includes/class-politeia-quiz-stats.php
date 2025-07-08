@@ -108,3 +108,98 @@ class Politeia_Quiz_Stats {
         return $out;
     }
 }
+
+
+/**
+ * Representa un curso de LearnDash y proporciona métodos para acceder a sus datos relacionados.
+ */
+class PoliteiaCourse {
+
+    public $id = 0;
+    public $post = null;
+
+    public function __construct( $course_id_or_post ) {
+        if ( $course_id_or_post instanceof WP_Post ) {
+            $this->post = $course_id_or_post;
+            $this->id   = $this->post->ID;
+        } else {
+            $this->id   = (int) $course_id_or_post;
+            $this->post = get_post( $this->id );
+        }
+    }
+
+    public function getTitle() {
+        return $this->post ? $this->post->post_title : 'Curso no encontrado';
+    }
+
+    public function getFirstQuizId() {
+        return $this->post ? (int) get_post_meta( $this->id, '_first_quiz_id', true ) : 0;
+    }
+
+    public function getFinalQuizId() {
+        return $this->post ? (int) get_post_meta( $this->id, '_final_quiz_id', true ) : 0;
+    }
+
+    public function getRelatedProductId() {
+        $product_id = 0;
+        $pq = new WP_Query( [
+            'post_type'      => 'product',
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+            'meta_query'     => [
+                [
+                    'key'     => '_related_course',
+                    'value'   => $this->id,
+                    'compare' => 'LIKE',
+                ],
+            ],
+        ] );
+
+        if ( $pq->have_posts() ) {
+            $product_id = $pq->posts[0];
+        }
+        return (int) $product_id;
+    }
+}
+
+
+/**
+ * Servicio para encontrar órdenes de compra relevantes de un usuario.
+ * Contiene la lógica para buscar órdenes normales y de tipo 'placeholder'.
+ */
+class PoliteiaOrderFinder {
+
+    public function findOrderForUser( $user_id, $product_id ) {
+        global $wpdb;
+        $order_id_found = 0;
+
+        // Parte A) Búsqueda de órdenes normales (Depende de un producto)
+        if ( $product_id && function_exists( 'wc_get_orders' ) ) {
+            $orders = wc_get_orders( [
+                'customer' => $user_id,
+                'status'   => [ 'pending', 'processing', 'completed', 'on-hold', 'course-on-hold' ],
+                'limit'    => -1,
+            ] );
+            foreach ( $orders as $order ) {
+                foreach ( $order->get_items() as $item ) {
+                    $pid = $item->get_meta( '_product_id', true ) ?: $item->get_product_id();
+                    if ( (int) $pid === (int) $product_id ) {
+                        $order_id_found = (int) $order->get_id();
+                        break 2;
+                    }
+                }
+            }
+        }
+
+        // Parte B) Fallback: Búsqueda de órdenes placeholder si no se encontró una orden normal
+        if ( ! $order_id_found ) {
+            $sql   = "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'shop_order_placehold' AND post_author = %d ORDER BY ID DESC LIMIT 1";
+            $found = $wpdb->get_var( $wpdb->prepare( $sql, $user_id ) );
+            if ( $found ) {
+                $order_id_found = (int) $found;
+            }
+        }
+        
+        return $order_id_found;
+    }
+}

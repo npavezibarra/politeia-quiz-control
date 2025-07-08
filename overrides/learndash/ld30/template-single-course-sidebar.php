@@ -298,23 +298,32 @@ if ( ! is_user_logged_in() ) {
             <?php }
         }
 
-        // 4.2) Botón Empezar/Continuar curso o “All Lessons Finished”
-        if ( ! $all_lessons_completed ) {
-            ?>
+        // 4.2) Start/Continue Course or “All Lessons Finished”
+        if ( in_array( $course_pricing['type'], array( 'paynow', 'closed' ), true ) && $first_quiz_id && ! $first_quiz_completed ) {
+        // Paid/Closed + First Quiz exists but NOT completed → disable Start Course
+        ?>
             <div class="learndash_join_button <?php echo esc_attr( $btn_advance_class ); ?>">
-                <a href="<?php echo esc_url( $resume_link ); ?>"
-                   class="btn-advance ld-primary-background"
-                   style="display:block;width:100%;margin:12px 0;">
+                <a class="btn-advance ld-primary-background disabled" style="pointer-events:none;opacity:0.5;display:block;width:100%;margin:12px 0;">
+                    <?php esc_html_e( 'Start Course', 'buddyboss-theme' ); ?>
+                </a>
+            </div>
+        <?php
+        } elseif ( ! $all_lessons_completed ) {
+        // Not all lessons done → show Start or Continue
+        ?>
+            <div class="learndash_join_button <?php echo esc_attr( $btn_advance_class ); ?>">
+                <a href="<?php echo esc_url( $resume_link ); ?>" class="btn-advance ld-primary-background" style="display:block;width:100%;margin:12px 0;">
                     <?php echo esc_html( $btn_advance_label ); ?>
                 </a>
             </div>
-            <?php
+        <?php
         } else {
-            ?>
+        // All lessons finished → show message
+        ?>
             <p style="margin-top:8px; font-size:14px; color:#007bff; font-weight:bold;">
                 <?php esc_html_e( 'All Lessons Finished', 'buddyboss-theme' ); ?>
             </p>
-            <?php
+        <?php
         }
 
         // 4.3) Final Quiz: botón o porcentaje

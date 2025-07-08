@@ -113,6 +113,11 @@ new PQC_Bootstrap();
 require_once plugin_dir_path( __FILE__ ) . 'overwrites.php';
 require_once plugin_dir_path( __FILE__ ) . 'functions.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-politeia-quiz-stats.php';
+add_action( 'init', function () {
+    require_once plugin_dir_path( __FILE__ ) . 'woo/update-order-status-after-first-quiz.php';
+}, 20 );
+
+
 
 /* Registration Redirect */
 
@@ -122,3 +127,62 @@ add_filter( 'registration_redirect', function( $redirect, $requested_redirect_to
     }
     return $redirect;
 }, 10, 3 );
+
+
+
+// =============================================================================
+//  VERSIÓN DEFINITIVA: WOOCOMMERCE ESTADO "COURSE ON HOLD" PARA LEARNDASH
+// =============================================================================
+
+/**
+ * 1. Registra el estado de pedido personalizado 'wc-course-on-hold'.
+ */
+add_action( 'init', function() {
+    register_post_status( 'wc-course-on-hold', array(
+        'label'                     => _x( 'Course On Hold', 'Order status', 'woocommerce' ),
+        'public'                    => true,
+        'exclude_from_search'       => false,
+        'show_in_admin_all_list'    => true,
+        'show_in_admin_status_list' => true,
+        'label_count'               => _n_noop( 'Course On Hold <span class="count">(%s)</span>', 'Course On Hold <span class="count">(%s)</span>', 'woocommerce' ),
+    ) );
+});
+
+/**
+ * 2. Añade el nuevo estado al listado de estados de WooCommerce para que sea visible.
+ */
+add_filter( 'wc_order_statuses', function( $order_statuses ) {
+    $new_order_statuses = array();
+    foreach ( $order_statuses as $key => $status ) {
+        $new_order_statuses[ $key ] = $status;
+        if ( 'wc-on-hold' === $key ) {
+            $new_order_statuses['wc-course-on-hold'] = _x( 'Course On Hold', 'Order status', 'woocommerce' );
+        }
+    }
+    return $new_order_statuses;
+});
+
+/**
+ * 3. Al cambiar un pedido a 'on-hold', revisa si contiene un curso y actualiza el estado.
+ * Esta versión utiliza get_post_meta() directamente para evitar problemas de carga de funciones.
+ */
+add_action( 'woocommerce_order_status_pending_to_on-hold', function( $order_id ) {
+    $order = wc_get_order( $order_id );
+
+    if ( ! $order ) {
+        return;
+    }
+    
+    foreach ( $order->get_items() as $item ) {
+        $product_id = $item->get_product_id();
+        
+        // Usamos la función nativa de WordPress, que siempre está disponible.
+        $related_course = get_post_meta( $product_id, '_related_course', true );
+        
+        // Si el metadato '_related_course' existe y no está vacío, es un producto de curso.
+        if ( ! empty( $related_course ) ) {
+            $order->update_status( 'wc-course-on-hold', 'Estado cambiado automáticamente: Pedido de curso LearnDash.' );
+            break; // Salimos del bucle, el trabajo está hecho.
+        }
+    }
+}, 10, 1 );
