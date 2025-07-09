@@ -4,7 +4,9 @@
  */
 
 get_header();
+
 the_post();
+
 
 // =================================================================
 // FUNCIÓN CORREGIDA PARA OBTENER DATOS DEL ÚLTIMO INTENTO
@@ -16,7 +18,6 @@ function politeia_get_last_attempt_data( $user_id, $quiz_id ) {
         return [ 'percentage' => 'None', 'date' => '—' ];
     }
 
-    // 1) Unimos por el meta 'quiz' correcto para obtener el último intento completado
     $activity = $wpdb->get_row( $wpdb->prepare( "
         SELECT ua.activity_id, ua.activity_completed
         FROM {$wpdb->prefix}learndash_user_activity AS ua
@@ -35,7 +36,6 @@ function politeia_get_last_attempt_data( $user_id, $quiz_id ) {
         return [ 'percentage' => 'None', 'date' => '—' ];
     }
 
-    // 2) Recuperamos el porcentaje para ese activity_id
     $percentage = $wpdb->get_var( $wpdb->prepare( "
         SELECT activity_meta_value+0
         FROM {$wpdb->prefix}learndash_user_activity_meta
@@ -61,7 +61,6 @@ $current_user_id = get_current_user_id();
 $quiz_id         = get_the_ID();
 $quiz_title      = get_the_title( $quiz_id );
 
-// 1) Recuperar el ID del curso al que pertenece como FIRST
 $course_id_first = $wpdb->get_var( $wpdb->prepare( "
     SELECT post_id
     FROM {$wpdb->postmeta}
@@ -70,7 +69,6 @@ $course_id_first = $wpdb->get_var( $wpdb->prepare( "
     LIMIT 1
 ", $quiz_id ) );
 
-// 2) Recuperar el ID del curso al que pertenece como FINAL
 $course_id_final = $wpdb->get_var( $wpdb->prepare( "
     SELECT post_id
     FROM {$wpdb->postmeta}
@@ -79,21 +77,16 @@ $course_id_final = $wpdb->get_var( $wpdb->prepare( "
     LIMIT 1
 ", $quiz_id ) );
 
-// 3) Determinar el curso al que pertenece (puede ser por FIRST o FINAL)
 $course_id = $course_id_first ?: $course_id_final;
 
-// 4) Obtener IDs de quizzes del curso
 $first_quiz_id = get_post_meta( $course_id, '_first_quiz_id', true );
 $final_quiz_id = get_post_meta( $course_id, '_final_quiz_id', true );
 
-// 5) Comparar si el quiz actual es FIRST o FINAL
 $is_first_quiz = ( (int) $quiz_id === (int) $first_quiz_id );
 $is_final_quiz = ( (int) $quiz_id === (int) $final_quiz_id );
 
-// 6) Título del curso
 $course_title = $course_id ? get_the_title( $course_id ) : 'N/A';
 
-// 7) Obtener datos de porcentaje y fecha para ambos quizzes
 $first_data = $first_quiz_id
     ? politeia_get_last_attempt_data( $current_user_id, $first_quiz_id )
     : [ 'percentage' => 'None', 'date' => '—' ];
@@ -102,56 +95,71 @@ $final_data = $final_quiz_id
     ? politeia_get_last_attempt_data( $current_user_id, $final_quiz_id )
     : [ 'percentage' => 'None', 'date' => '—' ];
 
+$progress_data = learndash_course_progress(array(
+    'user_id' => $current_user_id,
+    'course_id' => $course_id,
+    'array' => true
+));
+$progress = isset($progress_data['percentage']) ? $progress_data['percentage'] : 0;
 ?>
+
 <div class="quiz-wrap">
-  <div style="padding:40px; max-width:600px; margin:auto;">
+  <div style="padding:40px; max-width:600px; margin:auto; display: none; ">
     <table style="border-collapse: collapse; width: 100%; font-family: monospace;">
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">CURRENT QUIZ:</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= esc_html( $quiz_id ); ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">QUIZ NAME:</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= esc_html( $quiz_title ); ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">IS FIRST?</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= $is_first_quiz ? 'true' : 'false'; ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">IS FINAL?</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= $is_final_quiz ? 'true' : 'false'; ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">COURSE IT BELONGS TO:</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= esc_html( $course_title ); ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">USER ID:</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= esc_html( $current_user_id ); ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">FIRST QUIZ LAST ATTEMPT %:</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= esc_html( $first_data['percentage'] ); ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">FIRST QUIZ DATE:</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= esc_html( $first_data['date'] ); ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">FINAL QUIZ LAST ATTEMPT %:</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= esc_html( $final_data['percentage'] ); ?></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ccc;padding:8px;">FINAL QUIZ DATE:</td>
-        <td style="border:1px solid #ccc;padding:8px;"><?= esc_html( $final_data['date'] ); ?></td>
-      </tr>
+      <tr><td>CURRENT QUIZ:</td><td><?= esc_html( $quiz_id ); ?></td></tr>
+      <tr><td>QUIZ NAME:</td><td><?= esc_html( $quiz_title ); ?></td></tr>
+      <tr><td>IS FIRST?</td><td><?= $is_first_quiz ? 'true' : 'false'; ?></td></tr>
+      <tr><td>IS FINAL?</td><td><?= $is_final_quiz ? 'true' : 'false'; ?></td></tr>
+      <tr><td>COURSE IT BELONGS TO:</td><td><?= esc_html( $course_title ); ?></td></tr>
+      <tr><td>USER ID:</td><td><?= esc_html( $current_user_id ); ?></td></tr>
+      <tr><td>FIRST QUIZ LAST ATTEMPT %:</td><td><?= esc_html( $first_data['percentage'] ); ?></td></tr>
+      <tr><td>FIRST QUIZ DATE:</td><td><?= esc_html( $first_data['date'] ); ?></td></tr>
+      <tr><td>FINAL QUIZ LAST ATTEMPT %:</td><td><?= esc_html( $final_data['percentage'] ); ?></td></tr>
+      <tr><td>FINAL QUIZ DATE:</td><td><?= esc_html( $final_data['date'] ); ?></td></tr>
+      <tr><td><strong>LESSONS COMPLETED:</strong></td><td><?= $progress . '%'; ?></td></tr>
     </table>
   </div>
 
   <div class="page-content">
-    <?php the_content(); ?>
+    <?php
+    if ( $is_final_quiz && intval( $progress ) < 100 ) {
+        $course_title = get_the_title( $course_id );
+        $quiz_title   = get_the_title( $quiz_id );
+        echo '<div style="display:flex; align-items:center; justify-content:center; height:60vh;">';
+        echo '<div style="text-align:center; padding: 2em; max-width:600px;">';
+        echo '<h3 style="color:#333; line-height:1.5;">';
+        echo 'You have completed <strong>' . esc_html($progress) . '%</strong> of the lessons. ';
+        echo 'Finish the course <strong>' . esc_html($course_title) . '</strong> and you\'ll be able to take the <strong>' . esc_html($quiz_title) . '</strong> to check your progress.';
+        echo '</h3>';
+        echo '<a id="reanudar-curso-btn" href="' . esc_url( get_permalink( $course_id ) ) . '" style="display:inline-block; margin-top:1em; padding:0.5em 1em; background:#000; color:#fff; border-radius:5px; text-decoration:none;">Resume Course</a>';
+        echo '</div>';
+        echo '</div>';
+    } else {
+        the_content();
+    }
+    ?>
+
+    <?php
+    // Mostrar el quiz si corresponde
+    if ( $is_first_quiz ) {
+        echo do_shortcode('[quiz id="' . $quiz_id . '"]');
+    } elseif ( $is_final_quiz ) {
+        if (
+            learndash_is_user_enrolled($current_user_id, $course_id)
+            && intval($progress) === 100
+        ) {
+            echo do_shortcode('[quiz id="' . $quiz_id . '"]');
+        } else {
+            echo '<div style="text-align:center; padding: 2em; border: 2px dashed #ccc; background: #fefefe;">';
+            echo '<h2 style="color:#b71c1c;">Debes completar todas las lecciones del curso antes de rendir la Prueba Final.</h2>';
+            echo '<a href="' . esc_url( get_permalink( $course_id ) ) . '" style="display:inline-block; margin-top:1em; padding:0.75em 1.5em; background:#ff9800; color:#fff; border-radius:5px; text-decoration:none;">Reanudar Curso</a>';
+            echo '</div>';
+        }
+    }
+    ?>
   </div>
 </div>
+
 <?php
 get_footer();
+?>
