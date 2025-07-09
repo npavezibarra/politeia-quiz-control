@@ -415,10 +415,6 @@ if ( ! is_user_logged_in() ) {
 ?>
 
 
-
-
-
-
 					<?php
 					// =============================================================================
 					// 5. DATOS OCULTOS DE QUIZZES PARA DEPURACIÓN

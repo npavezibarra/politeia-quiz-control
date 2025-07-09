@@ -42,11 +42,6 @@ function politeia_handle_course_join() {
     }
 }
 
-
-/* DEACTIVATE AUTO ENROLL ON PURCHASE OF PRODUCT 
-
-<?php
-
 /**
  * =============================================================================
  * TABLA DE DEPURACIÓN (VERSIÓN REFACTORIZADA CON CLASES)
@@ -77,7 +72,7 @@ function politeia_course_debug_table_refactored( $content ) {
     // --- 2. Renderizar la tabla con los datos obtenidos ---
     ob_start();
     ?>
-    <table style="width:60%; margin-top:20px; border-collapse:collapse;">
+    <table style="width:60%; margin-top:20px; border-collapse:collapse; display: none;">
         <tr><td><strong>User ID:</strong></td><td><?php echo esc_html( $user_id ); ?></td></tr>
         <tr><td><strong>Username:</strong></td><td><?php echo esc_html( $user_data->user_login ); ?></td></tr>
         <tr><td><strong>Course ID:</strong></td><td><?php echo esc_html( $course->id ); ?></td></tr>

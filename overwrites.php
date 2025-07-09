@@ -68,3 +68,14 @@ add_filter( 'learndash_template', function( $filepath, $filename ) {
 }, 10, 2 );
 
 
+/* OVERWRITE QUIZ TEMPLATE */
+
+add_filter('template_include', function($template) {
+    if (is_singular('sfwd-quiz')) {
+        $custom_template = plugin_dir_path(__FILE__) . 'templates/quiz/single-sfwd-quiz.php';
+        if (file_exists($custom_template)) {
+            return $custom_template;
+        }
+    }
+    return $template;
+});

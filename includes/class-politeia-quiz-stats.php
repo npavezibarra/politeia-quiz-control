@@ -160,7 +160,35 @@ class PoliteiaCourse {
         }
         return (int) $product_id;
     }
+
+    /**
+     * Verifica si el usuario está inscrito formalmente en el curso.
+     */
+    public function isUserEnrolled( $user_id ) {
+        if ( ! function_exists( 'ld_course_check_user_access' ) ) {
+            return false;
+        }
+
+        $access = ld_course_check_user_access( $this->id, $user_id );
+        return isset( $access['access'] ) && $access['access'] === true;
+    }
+
+    /**
+     * Verifica si el usuario ha completado todas las lecciones del curso.
+     */
+    public function hasCompletedAllLessons( $user_id ) {
+        $progress = learndash_course_progress( [
+            'course_id' => $this->id,
+            'user_id'   => $user_id,
+            'array'     => true,
+        ] );
+
+        return isset( $progress['completed'], $progress['total'] )
+            && (int) $progress['total'] > 0
+            && (int) $progress['completed'] >= (int) $progress['total'];
+    }
 }
+
 
 
 /**

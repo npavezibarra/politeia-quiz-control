@@ -113,11 +113,6 @@ new PQC_Bootstrap();
 require_once plugin_dir_path( __FILE__ ) . 'overwrites.php';
 require_once plugin_dir_path( __FILE__ ) . 'functions.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-politeia-quiz-stats.php';
-add_action( 'init', function () {
-    require_once plugin_dir_path( __FILE__ ) . 'woo/update-order-status-after-first-quiz.php';
-}, 20 );
-
-
 
 /* Registration Redirect */
 
@@ -186,3 +181,4 @@ add_action( 'woocommerce_order_status_pending_to_on-hold', function( $order_id )
         }
     }
 }, 10, 1 );
+
