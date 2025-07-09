@@ -68,7 +68,7 @@ add_filter( 'learndash_template', function( $filepath, $filename ) {
 }, 10, 2 );
 
 
-/* OVERWRITE QUIZ TEMPLATE */
+/* OVERWRITE SINGLE QUIZ TEMPLATE */
 
 add_filter('template_include', function($template) {
     if (is_singular('sfwd-quiz')) {

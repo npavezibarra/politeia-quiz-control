@@ -87,55 +87,129 @@ function politeia_course_debug_table_refactored( $content ) {
     return ob_get_clean() . $content;
 }
 
+/* CHANGE ORDER STATUS IN COURSE PAGE */
+
+add_action( 'wp', 'politeia_maybe_complete_order_from_debug_table' );
+
+function politeia_maybe_complete_order_from_debug_table() {
+    if ( ! is_singular( 'sfwd-courses' ) ) {
+        return;
+    }
+
+    $user_id = get_current_user_id();
+    if ( ! $user_id ) return;
+
+    $course_id = get_the_ID();
+    $course = new PoliteiaCourse( $course_id );
+    $product_id = $course->getRelatedProductId();
+
+    if ( ! $product_id ) return;
+
+    $orderFinder = new PoliteiaOrderFinder();
+    $order_id = $orderFinder->findOrderForUser( $user_id, $product_id );
+
+    if ( ! $order_id ) return;
+
+    $order = wc_get_order( $order_id );
+    if ( ! $order || $order->get_status() === 'completed' ) return;
+
+    // Verificar si se completó el First Quiz
+    $first_quiz_completed = false;
+    if ( class_exists('Politeia_Quiz_Stats') ) {
+        $attempts = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, $course->getFirstQuizId() );
+        $first_quiz_completed = ! empty( $attempts );
+    }
+
+    // Si se completó el First Quiz y el usuario compró el curso, completar la orden
+    if ( $first_quiz_completed ) {
+        $order->update_status( 'completed', 'Orden completada automáticamente desde vista de curso.' );
+    }
+}
+
 
 /**
  * =============================================================================
  * CAMBIAR ESTADO DE ORDEN (VERSIÓN REFACTORIZADA CON CLASES)
  * =============================================================================
  */
-add_action( 'learndash_quiz_completed', 'politeia_complete_order_on_quiz_refactored', 10, 2 );
 
-function politeia_complete_order_on_quiz_refactored( $quiz_data, $user ) {
-    
-    // 1. Obtener datos iniciales
-    $user_id = $user->ID;
-    $quiz_id_completed = $quiz_data['quiz'];
 
-    // 2. Usar la clase para encontrar el curso al que pertenece el quiz
-    $course_id = 0;
-    // (Esta lógica de búsqueda inversa es específica y se queda aquí por ahora)
-    $course_query = new WP_Query([
-        'post_type'  => 'sfwd-courses', 'fields' => 'ids', 'posts_per_page' => 1,
-        'meta_query' => [ 'relation' => 'OR',
-            [ 'key' => '_first_quiz_id', 'value' => $quiz_id_completed ],
-            [ 'key' => '_final_quiz_id', 'value' => $quiz_id_completed ],
-        ]
-    ]);
-    if ( $course_query->have_posts() ) { $course_id = $course_query->posts[0]; }
-    if ( ! $course_id ) { return; }
 
-    // 3. Usar las clases para el resto de la lógica
-    $course     = new PoliteiaCourse( $course_id );
-    $product_id = $course->getRelatedProductId();
-    
-    if ( ! $product_id ) { return; }
+ add_action( 'learndash_quiz_completed', 'politeia_complete_order_on_quiz_refactored', 10, 2 );
 
-    // Aquí no usamos el OrderFinder porque la lógica es más simple:
-    // solo buscamos órdenes con un estado específico.
-    $orders = wc_get_orders([
-        'customer_id' => $user_id,
-        'status'      => [ 'course-on-hold' ],
-        'limit'       => -1,
-    ]);
-    if ( empty( $orders ) ) { return; }
-
-    // 4. Actualizar la orden
-    foreach ( $orders as $order ) {
-        foreach ( $order->get_items() as $item ) {
-            if ( (int) $item->get_product_id() === (int) $product_id ) {
-                $order->update_status( 'completed', 'Orden completada automáticamente tras rendir un quiz clave del curso.' );
-                return;
-            }
-        }
-    }
-}
+ function politeia_complete_order_on_quiz_refactored( $quiz_data, $user ) {
+     // 1. Obtener datos iniciales
+     $user_id = $user->ID;
+     $quiz_id_completed = $quiz_data['quiz'];
+ 
+     if ( empty( $user_id ) || empty( $quiz_id_completed ) ) {
+         error_log("Faltan datos esenciales para procesar la orden.");
+         return;
+     }
+ 
+     error_log("HOOK learndash_quiz_completed triggered for user ID: $user_id and quiz ID: $quiz_id_completed");
+     error_log("Comprobando finalización de quiz. User ID: $user_id | Quiz ID: $quiz_id_completed");
+ 
+     // 2. Usar la clase para encontrar el curso al que pertenece el quiz
+     $course_id = 0;
+     $course_query = new WP_Query([
+         'post_type'  => 'sfwd-courses',
+         'fields'     => 'ids',
+         'posts_per_page' => 1,
+         'meta_query' => [
+             'relation' => 'OR',
+             [
+                 'key'   => '_first_quiz_id',
+                 'value' => $quiz_id_completed
+             ],
+             [
+                 'key'   => '_final_quiz_id',
+                 'value' => $quiz_id_completed
+             ]
+         ]
+     ]);
+ 
+     if ( $course_query->have_posts() ) {
+         $course_id = $course_query->posts[0];
+     }
+ 
+     if ( ! $course_id ) {
+         error_log("No se encontró curso asociado al quiz ID: $quiz_id_completed");
+         return;
+     }
+ 
+     // 3. Obtener producto relacionado usando la clase
+     $course     = new PoliteiaCourse( $course_id );
+     $product_id = $course->getRelatedProductId();
+ 
+     if ( ! $product_id ) {
+         error_log("No se encontró producto relacionado al curso ID: $course_id");
+         return;
+     }
+ 
+     // 4. Buscar órdenes 'course-on-hold' del usuario
+     $orders = wc_get_orders([
+         'customer_id' => $user_id,
+         'status'      => [ 'course-on-hold' ],
+         'limit'       => -1,
+     ]);
+ 
+     if ( empty( $orders ) ) {
+         error_log("No se encontraron órdenes con estado 'course-on-hold' para user ID: $user_id");
+         return;
+     }
+ 
+     // 5. Verificar que el producto está en la orden y actualizarla
+     foreach ( $orders as $order ) {
+         foreach ( $order->get_items() as $item ) {
+             if ( (int) $item->get_product_id() === (int) $product_id ) {
+                 $order->update_status( 'completed', 'Orden completada automáticamente tras rendir un quiz clave del curso.' );
+                 error_log("Orden ID {$order->get_id()} actualizada a 'completed' para user ID: $user_id");
+                 return;
+             }
+         }
+     }
+ 
+     error_log("No se encontró producto $product_id en ninguna orden 'course-on-hold' del usuario.");
+ }
+ 

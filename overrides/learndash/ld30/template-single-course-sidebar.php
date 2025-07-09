@@ -425,7 +425,7 @@ if ( ! is_user_logged_in() ) {
 					// =============================================================================
 					?>
 					<?php if ( $first_quiz_id || $final_quiz_id ) : ?>
-                        <div id="test-data" style="display:none">
+                        <div id="test-data" style="display:block">
                             <h3>
 								<?php
 								if ( $first_quiz_id ) {
@@ -471,7 +471,7 @@ if ( ! is_user_logged_in() ) {
 								?>
                             </h3>
 							<?php if ( $final_quiz_id ) : ?>
-                                <p style="color:#666;">Final Quiz ID: <?php echo esc_html( $final_quiz_id ); ?></p>
+                                <p style="color:#666;">Final Quizzzz ID: <?php echo esc_html( $final_quiz_id ); ?></p>
 								<?php if ( empty( $final_attempts ) ) : ?>
                                     <p class="quiz-status-text"><?php esc_html_e( 'No attempts yet', 'buddyboss-theme' ); ?></p>
 								<?php else : ?>

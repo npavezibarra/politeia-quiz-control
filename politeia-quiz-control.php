@@ -114,6 +114,7 @@ require_once plugin_dir_path( __FILE__ ) . 'overwrites.php';
 require_once plugin_dir_path( __FILE__ ) . 'functions.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-politeia-quiz-stats.php';
 
+
 /* Registration Redirect */
 
 add_filter( 'registration_redirect', function( $redirect, $requested_redirect_to, $user ) {
