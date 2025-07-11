@@ -116,7 +116,7 @@ $has_lesson_quizzes = learndash_30_has_lesson_quizzes( $course_id, $lessons ); ?
 
 
 <div class="<?php echo esc_attr( learndash_the_wrapper_class() ); ?>">
-IMPRIME ESTO
+PRINT THIS CUSTOM MESSAGE ON THE COURSE PAGE
 	<?php
 	global $course_pager_results;
 

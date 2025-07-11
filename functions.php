@@ -213,3 +213,91 @@ function politeia_maybe_complete_order_from_debug_table() {
      error_log("No se encontró producto $product_id en ninguna orden 'course-on-hold' del usuario.");
  }
  
+
+/**
+ * Si NO se ha completado el First Quiz, muestra un aviso alineado a la derecha
+ * justo después de "Course Content".
+ */
+add_action( 'learndash-course-heading-after', 'politeia_show_quiz_gate_message', 10, 2 );
+function politeia_show_quiz_gate_message( $course_id, $user_id ) {
+    if ( ! is_singular( 'sfwd-courses' ) ) {
+        return;
+    }
+
+    $course        = new PoliteiaCourse( $course_id );
+    $first_quiz_id = $course->getFirstQuizId();
+    if ( ! $first_quiz_id ) {
+        return;
+    }
+
+    $completed = false;
+    if ( class_exists( 'Politeia_Quiz_Stats' ) ) {
+        $attempts  = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, $first_quiz_id );
+        $completed = ! empty( $attempts );
+    }
+
+    if ( ! $completed ) {
+        // Usamos esc_html__() para que esto pueda traducirse en los .po/.mo
+        $msg = esc_html__( 'To access lessons finish the First Quiz', 'politeia-quiz-control' );
+
+        echo '<div class="politeia-course-content-msg" '
+           . 'style="display:inline-block; float:right; margin-top:-0.2em; font-weight:bold; color:#444">'
+           . $msg
+           . '</div>';
+    }
+}
+
+/* SHOW RESULT */
+
+add_action( 'wp_footer', 'politeia_add_quiz_result_button' );
+
+function politeia_add_quiz_result_button() {
+	if ( ! is_singular( 'sfwd-quiz' ) ) {
+		return;
+	}
+
+	// Asegura que el usuario esté conectado y se haya completado el quiz
+	$user_id = get_current_user_id();
+	if ( ! $user_id ) return;
+
+	$quiz_id = get_the_ID();
+	$related_course_id = get_post_meta( $quiz_id, '_related_course', true );
+
+	if ( ! $related_course_id ) return;
+
+	// Obtener ID del producto que vende este curso
+	$product_id = wc_get_products([
+		'limit'      => 1,
+		'status'     => 'publish',
+		'type'       => 'simple',
+		'meta_key'   => '_related_course',
+		'meta_value' => $related_course_id,
+		'return'     => 'ids',
+	])[0] ?? null;
+
+	if ( ! $product_id ) return;
+
+	$course_url  = get_permalink( $related_course_id );
+	$product_url = get_permalink( $product_id );
+	$has_bought  = wc_customer_bought_product( '', $user_id, $product_id );
+
+	$link_url  = $has_bought ? $course_url : $product_url;
+	$link_text = $has_bought ? __( 'Ir al Curso', 'politeia' ) : __( 'Comprar Curso', 'politeia' );
+
+	?>
+	<script>
+		document.addEventListener("DOMContentLoaded", function () {
+			const actionsContainer = document.querySelector('.ld-quiz-actions');
+			if (!actionsContainer) return;
+
+			const button = document.createElement('a');
+			button.href = '<?php echo esc_url( $link_url ); ?>';
+			button.innerText = '<?php echo esc_html( $link_text ); ?>';
+			button.className = 'wpProQuiz_button';
+			button.style.marginLeft = '10px';
+
+			actionsContainer.appendChild(button);
+		});
+	</script>
+	<?php
+}
