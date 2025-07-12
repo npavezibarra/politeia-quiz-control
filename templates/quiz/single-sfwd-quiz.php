@@ -103,6 +103,7 @@ $progress_data = learndash_course_progress(array(
 $progress = isset($progress_data['percentage']) ? $progress_data['percentage'] : 0;
 ?>
 
+<!--DEBUG TABLE-->
 <div class="quiz-wrap">
   <div style="padding:40px; max-width:600px; margin:auto; display: none; ">
     <table style="border-collapse: collapse; width: 100%; font-family: monospace;">
@@ -159,6 +160,20 @@ $progress = isset($progress_data['percentage']) ? $progress_data['percentage'] :
     ?>
   </div>
 </div>
+<!-- DEBUG END-->
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+	const startBtn = document.querySelector('input[name="startQuiz"]');
+	const introText = document.querySelector('.ld-tabs-content');
+
+	if (startBtn && introText) {
+		startBtn.addEventListener('click', function () {
+			introText.style.display = 'none';
+		});
+	}
+});
+</script>
 
 <?php
 get_footer();
