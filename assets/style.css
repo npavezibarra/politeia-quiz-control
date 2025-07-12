@@ -24,8 +24,11 @@
 
 /* HACE BARRA GRIS DE RESULTADOS INVISIBLE */
 
-<style>
+
 .wpProQuiz_points.wpProQuiz_points--message {
 	display: none !important;
 }
-</style>
+
+p.wpProQuiz_quiz_time {
+    margin-bottom: -10px;
+}

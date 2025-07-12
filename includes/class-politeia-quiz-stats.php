@@ -187,6 +187,34 @@ class PoliteiaCourse {
             && (int) $progress['total'] > 0
             && (int) $progress['completed'] >= (int) $progress['total'];
     }
+
+    public static function find_course_id_by_quiz( $quiz_id ) {
+        global $wpdb;
+
+        // 1. Verifica si este quiz es un First Quiz
+        $course_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT post_id
+             FROM {$wpdb->postmeta}
+             WHERE meta_key = '_first_quiz_id'
+               AND meta_value = %d
+             LIMIT 1", $quiz_id
+        ) );
+
+        if ( $course_id ) {
+            return (int) $course_id;
+        }
+
+        // 2. Verifica si está en el builder del curso (como Final Quiz u otro)
+        $course_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT post_id
+             FROM {$wpdb->prefix}learndash_course_steps
+             WHERE step_id = %d
+               AND step_type = 'quiz'
+             LIMIT 1", $quiz_id
+        ) );
+
+        return $course_id ? (int) $course_id : 0;
+    }
 }
 
 

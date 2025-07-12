@@ -10,6 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 ?>
+
 <div style="display: none;" class="wpProQuiz_sending">
 	<h4 class="wpProQuiz_header"><?php esc_html_e( 'Results', 'learndash' ); ?></h4>
 	<p>
@@ -58,51 +59,151 @@ if ( ! $quiz->isHideResultQuizTime() ) {
 }
 ?>
 
-	<!-- Pie Chart -->
-	<div style="max-width: 300px; margin: 20px auto;">
-        <div id="radial-chart" style="max-width: 300px; margin: 0 auto;"></div>
-	</div>
+<!-- Pie Chart -->
+<div style="max-width: 300px; margin: 0px auto;">
+    <div id="radial-chart" style="max-width: 300px; margin: 0 auto;"></div>
+</div>
 
+<?php
+if ( ! $quiz->isHideResultCorrectQuestion() ) {
+	echo wp_kses_post(
+		SFWD_LMS::get_template(
+			'learndash_quiz_messages',
+			array(
+				'quiz_post_id' => $quiz->getID(),
+				'context'      => 'quiz_questions_answered_correctly_message',
+				'message'      => '<p>' . sprintf( esc_html_x( '%1$s of %2$s %3$s answered correctly', 'placeholder: correct answer, question count, questions', 'learndash' ), '<span class="wpProQuiz_correct_answer">0</span>', '<span>' . $question_count . '</span>', learndash_get_custom_label( 'questions' ) ) . '</p>',
+				'placeholders' => array( '0', $question_count ),
+			)
+		)
+	);
+}
+?>
+
+<p class="wpProQuiz_points wpProQuiz_points--message" style="display:none;">
 	<?php
-	if ( ! $quiz->isHideResultCorrectQuestion() ) {
-		echo wp_kses_post(
-			SFWD_LMS::get_template(
-				'learndash_quiz_messages',
-				array(
-					'quiz_post_id' => $quiz->getID(),
-					'context'      => 'quiz_questions_answered_correctly_message',
-					'message'      => '<p>' . sprintf( esc_html_x( '%1$s of %2$s %3$s answered correctly', 'placeholder: correct answer, question count, questions', 'learndash' ), '<span class="wpProQuiz_correct_answer">0</span>', '<span>' . $question_count . '</span>', learndash_get_custom_label( 'questions' ) ) . '</p>',
-					'placeholders' => array( '0', $question_count ),
-				)
+	echo wp_kses_post(
+		SFWD_LMS::get_template(
+			'learndash_quiz_messages',
+			array(
+				'quiz_post_id' => $quiz->getID(),
+				'context'      => 'quiz_have_reached_points_message',
+				'message'      => sprintf( esc_html_x( 'You have reached %1$s of %2$s point(s), (%3$s)', 'placeholder: points earned, points total', 'learndash' ), '<span>0</span>', '<span>0</span>', '<span>0</span>' ),
+				'placeholders' => array( '0', '0', '0' ),
 			)
-		);
-	}
-
-	
+		)
+	);
 	?>
+</p>
+<?php
+global $wpdb;
+$current_user_id = get_current_user_id();
 
-	<p class="wpProQuiz_points wpProQuiz_points--message" style="display:none;">
-		<?php
-		echo wp_kses_post(
-			SFWD_LMS::get_template(
-				'learndash_quiz_messages',
-				array(
-					'quiz_post_id' => $quiz->getID(),
-					'context'      => 'quiz_have_reached_points_message',
-					'message'      => sprintf( esc_html_x( 'You have reached %1$s of %2$s point(s), (%3$s)', 'placeholder: points earned, points total', 'learndash' ), '<span>0</span>', '<span>0</span>', '<span>0</span>' ),
-					'placeholders' => array( '0', '0', '0' ),
-				)
-			)
-		);
-		?>
-	</p>
+// ID del quiz actual
+$quiz_id = get_the_ID();
 
-	<!-- Button Placeholder -->
-	<button type="button" class="buy-course-button">CONDITIONAL BUTTON</button>
+// Buscar si este quiz está asignado como First Quiz en algún curso
+$course_id = $wpdb->get_var( $wpdb->prepare(
+    "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_first_quiz_id' AND meta_value = %d",
+    $quiz_id
+) );
 
-	<!-- ApexCharts CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-    <script>
+// ¿Es First Quiz?
+$is_first_quiz = !empty( $course_id );
+
+// Buscar producto relacionado usando meta_value serializado
+$related_product_id = null;
+
+if ( $course_id ) {
+    $like = '%i:0;i:' . (int) $course_id . ';%';
+    $related_product_id = $wpdb->get_var( $wpdb->prepare(
+        "SELECT post_id FROM $wpdb->postmeta 
+         WHERE meta_key = '_related_course' 
+         AND meta_value LIKE %s",
+        $like
+    ) );
+}
+
+// Verificar si el usuario compró ese producto
+$has_bought   = false;
+$order_number = null;
+$order_status = null;
+
+if ( $current_user_id && $related_product_id ) {
+    $orders = wc_get_orders( array(
+        'customer_id' => $current_user_id,
+        'status'      => array( 'completed', 'processing', 'on-hold', 'course-on-hold' ),
+        'limit'       => -1,
+        'return'      => 'ids'
+    ) );
+
+    foreach ( $orders as $order_id ) {
+        $order = wc_get_order( $order_id );
+        foreach ( $order->get_items() as $item ) {
+            if ( $item->get_product_id() == $related_product_id ) {
+                $has_bought   = true;
+                $order_number = $order->get_order_number();
+                $order_status = $order->get_status();
+                break 2;
+            }
+        }
+    }
+}
+?>
+
+<table style="width:100%; border-collapse: collapse; font-size: 14px; display:none;">
+    <tbody>
+        <tr>
+            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Quiz ID</th>
+            <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo esc_html( $quiz_id ); ?></td>
+        </tr>
+        <tr>
+            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">¿Es First Quiz?</th>
+            <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_first_quiz ? 'TRUE' : 'FALSE'; ?></td>
+        </tr>
+        <tr>
+            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Course ID</th>
+            <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $course_id ? esc_html( $course_id ) : '—'; ?></td>
+        </tr>
+        <tr>
+            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Related Product ID</th>
+            <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $related_product_id ? esc_html( $related_product_id ) : '—'; ?></td>
+        </tr>
+        <tr>
+            <th style="text-align: left; padding: 8px;">Bought?</th>
+            <td style="padding: 8px;"><?php echo $has_bought ? 'TRUE' : 'FALSE'; ?></td>
+        </tr>
+        <?php if ( $has_bought && $order_number ) : ?>
+        <tr>
+            <th style="text-align: left; padding: 8px;">Order Number</th>
+            <td style="padding: 8px;"><?php echo esc_html( $order_number ); ?></td>
+        </tr>
+        <tr>
+            <th style="text-align: left; padding: 8px;">Order Status</th>
+            <td style="padding: 8px;"><?php echo esc_html( ucfirst( $order_status ) ); ?></td>
+        </tr>
+        <?php endif; ?>
+    </tbody>
+</table>
+
+<?php
+// Mostrar botón de acción
+echo '<div style="margin-top: 20px;">';
+if ( $has_bought && $course_id ) {
+    $course_link = get_permalink( $course_id );
+    echo '<a href="' . esc_url( $course_link ) . '" class="button" style="background:black; color:white; padding:10px 20px; text-decoration:none;">Go to Course</a>';
+} elseif ( $related_product_id ) {
+    $product_link = get_permalink( $related_product_id );
+    echo '<a href="' . esc_url( $product_link ) . '" class="button" style="background:black; color:white; padding:10px 20px; text-decoration:none;">Buy Course</a>';
+}
+echo '</div>';
+?>
+
+
+
+<!-- ApexCharts CDN -->
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script>
 document.addEventListener("DOMContentLoaded", function () {
 	const target = document.querySelector(".wpProQuiz_points.wpProQuiz_points--message");
 	if (!target) return;
@@ -118,7 +219,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 		if (isNaN(percentage)) return;
 
-		observer.disconnect(); // Stop observing once we have the value
+		observer.disconnect();
 
 		const options = {
 			series: [percentage],
@@ -137,7 +238,7 @@ document.addEventListener("DOMContentLoaded", function () {
 							offsetY: -10,
 							color: '#666',
 							fontSize: '16px',
-							text: 'Percent'
+							text: 'Correctas'
 						},
 						value: {
 							show: true,
@@ -153,24 +254,18 @@ document.addEventListener("DOMContentLoaded", function () {
 				}
 			},
 			labels: ['Correctas'],
-			colors: ['#00B8D9'],
+			colors: ['#fcff9e'],
 			fill: {
-                type: 'gradient',
-                gradient: {
-                    shade: 'light',
-                    type: 'horizontal',
-                    shadeIntensity: 0.5,
-                    gradientToColors: ['#c67700'],
-                    colorStops: [
-                        { offset: 0, color: '#fcff9e', opacity: 1 },
-                        { offset: 100, color: '#c67700', opacity: 1 }
-                    ],
-                    inverseColors: false,
-                    opacityFrom: 1,
-                    opacityTo: 1,
-                    stops: [0, 100]
-                }
-            }
+				type: 'gradient',
+				gradient: {
+					shade: 'light',
+					type: 'horizontal',
+					gradientToColors: ['#c67700'],
+					stops: [0, 100],
+					opacityFrom: 1,
+					opacityTo: 1
+				}
+			}
 		};
 
 		if (chartContainer) {
