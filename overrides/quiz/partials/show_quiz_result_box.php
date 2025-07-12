@@ -36,11 +36,31 @@ if ( ! defined( 'ABSPATH' ) ) {
 </div>
 
 <div style="display: none;" class="wpProQuiz_results">
-	<h4 class="wpProQuiz_header"><?php esc_html_e( 'Results', 'learndash' ); ?></h4>
+
+<?php
+if ( ! $quiz->isHideResultQuizTime() ) {
+    ?>
+    <p class="wpProQuiz_quiz_time">
+    <?php
+        echo wp_kses_post(
+            SFWD_LMS::get_template(
+                'learndash_quiz_messages',
+                array(
+                    'quiz_post_id' => $quiz->getID(),
+                    'context'      => 'quiz_your_time_message',
+                    'message'      => sprintf( esc_html_x( 'Your time: %s', 'placeholder: quiz time.', 'learndash' ), '<span></span>' ),
+                )
+            )
+        );
+    ?>
+    </p>
+    <?php
+}
+?>
 
 	<!-- Pie Chart -->
-	<div style="max-width: 200px; margin: 20px auto;">
-		<canvas id="circle-chart" width="200" height="200"></canvas>
+	<div style="max-width: 300px; margin: 20px auto;">
+        <div id="radial-chart" style="max-width: 300px; margin: 0 auto;"></div>
 	</div>
 
 	<?php
@@ -58,27 +78,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 		);
 	}
 
-	if ( ! $quiz->isHideResultQuizTime() ) {
-		?>
-		<p class="wpProQuiz_quiz_time">
-		<?php
-			echo wp_kses_post(
-				SFWD_LMS::get_template(
-					'learndash_quiz_messages',
-					array(
-						'quiz_post_id' => $quiz->getID(),
-						'context'      => 'quiz_your_time_message',
-						'message'      => sprintf( esc_html_x( 'Your time: %s', 'placeholder: quiz time.', 'learndash' ), '<span></span>' ),
-					)
-				)
-			);
-		?>
-		</p>
-		<?php
-	}
+	
 	?>
 
-	<p class="wpProQuiz_points wpProQuiz_points--message">
+	<p class="wpProQuiz_points wpProQuiz_points--message" style="display:none;">
 		<?php
 		echo wp_kses_post(
 			SFWD_LMS::get_template(
@@ -97,60 +100,86 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<!-- Button Placeholder -->
 	<button type="button" class="buy-course-button">CONDITIONAL BUTTON</button>
 
-	<!-- Chart.js & Dynamic Percentage Script -->
-	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
+	<!-- ApexCharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script>
 document.addEventListener("DOMContentLoaded", function () {
-	const targetNode = document.querySelector(".wpProQuiz_points.wpProQuiz_points--message");
-	const canvas = document.getElementById('circle-chart');
-	if (!targetNode || !canvas) return;
+	const target = document.querySelector(".wpProQuiz_points.wpProQuiz_points--message");
+	if (!target) return;
 
-	const ctx = canvas.getContext('2d');
+	const span = target.querySelectorAll("span")[2];
+	if (!span) return;
 
-	const renderChart = (percentage) => {
-		new Chart(ctx, {
-			type: 'doughnut',
-			data: {
-				labels: ['Correct', 'Incorrect'],
-				datasets: [{
-					data: [percentage, 100 - percentage],
-					backgroundColor: ['#2196F3', '#E0E0E0'],
-					borderWidth: 0
-				}]
-			},
-			options: {
-				cutout: '70%',
-				plugins: {
-					legend: { display: false },
-					tooltip: { enabled: false },
-					title: {
-						display: true,
-						text: 'Results',
-						font: {
-							size: 18,
-							weight: 'bold'
-						},
-						color: '#333'
-					}
-				}
-			}
-		});
-	};
+	const chartContainer = document.querySelector("#radial-chart");
 
-	const observer = new MutationObserver(() => {
-		const spans = targetNode.querySelectorAll('span');
-		if (spans.length < 3) return;
-
-		const percentageText = spans[2].innerText.replace('%', '');
+	const observer = new MutationObserver(function () {
+		const percentageText = span.innerText.replace('%', '').trim();
 		const percentage = parseFloat(percentageText);
 
-		if (!isNaN(percentage)) {
-			observer.disconnect(); // Detenemos el observer
-			renderChart(percentage);
+		if (isNaN(percentage)) return;
+
+		observer.disconnect(); // Stop observing once we have the value
+
+		const options = {
+			series: [percentage],
+			chart: {
+				height: 400,
+				type: 'radialBar'
+			},
+			plotOptions: {
+				radialBar: {
+					hollow: {
+						size: '60%'
+					},
+					dataLabels: {
+						name: {
+							show: true,
+							offsetY: -10,
+							color: '#666',
+							fontSize: '16px',
+							text: 'Percent'
+						},
+						value: {
+							show: true,
+							fontSize: '32px',
+							fontWeight: 600,
+							color: '#111',
+							offsetY: 8,
+							formatter: function (val) {
+								return val + '%';
+							}
+						}
+					}
+				}
+			},
+			labels: ['Correctas'],
+			colors: ['#00B8D9'],
+			fill: {
+                type: 'gradient',
+                gradient: {
+                    shade: 'light',
+                    type: 'horizontal',
+                    shadeIntensity: 0.5,
+                    gradientToColors: ['#c67700'],
+                    colorStops: [
+                        { offset: 0, color: '#fcff9e', opacity: 1 },
+                        { offset: 100, color: '#c67700', opacity: 1 }
+                    ],
+                    inverseColors: false,
+                    opacityFrom: 1,
+                    opacityTo: 1,
+                    stops: [0, 100]
+                }
+            }
+		};
+
+		if (chartContainer) {
+			const chart = new ApexCharts(chartContainer, options);
+			chart.render();
 		}
 	});
 
-	observer.observe(targetNode, { childList: true, subtree: true });
+	observer.observe(span, { childList: true, characterData: true, subtree: true });
 });
 </script>
 
