@@ -60,9 +60,15 @@ if ( ! $quiz->isHideResultQuizTime() ) {
 ?>
 
 <!-- Pie Chart -->
-<div style="max-width: 300px; margin: 0px auto;">
-    <div id="radial-chart" style="max-width: 300px; margin: 0 auto;"></div>
+<div style="display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; margin-bottom: 30px;">
+	<div style="max-width: 300px;">
+		<div id="radial-chart"></div>
+	</div>
+	<div style="max-width: 300px;">
+		<div id="radial-chart-promedio"></div>
+	</div>
 </div>
+
 
 <?php
 if ( ! $quiz->isHideResultCorrectQuestion() ) {
@@ -212,6 +218,7 @@ document.addEventListener("DOMContentLoaded", function () {
 	if (!span) return;
 
 	const chartContainer = document.querySelector("#radial-chart");
+	const chartContainerPromedio = document.querySelector("#radial-chart-promedio");
 
 	const observer = new MutationObserver(function () {
 		const percentageText = span.innerText.replace('%', '').trim();
@@ -221,24 +228,22 @@ document.addEventListener("DOMContentLoaded", function () {
 
 		observer.disconnect();
 
-		const options = {
-			series: [percentage],
+		const options = (value, labelText, colorStart, colorEnd) => ({
+			series: [value],
 			chart: {
 				height: 400,
 				type: 'radialBar'
 			},
 			plotOptions: {
 				radialBar: {
-					hollow: {
-						size: '60%'
-					},
+					hollow: { size: '60%' },
 					dataLabels: {
 						name: {
 							show: true,
 							offsetY: -10,
 							color: '#666',
 							fontSize: '16px',
-							text: 'Correctas'
+							text: labelText
 						},
 						value: {
 							show: true,
@@ -246,31 +251,34 @@ document.addEventListener("DOMContentLoaded", function () {
 							fontWeight: 600,
 							color: '#111',
 							offsetY: 8,
-							formatter: function (val) {
-								return val + '%';
-							}
+							formatter: val => val + '%'
 						}
 					}
 				}
 			},
-			labels: ['Correctas'],
-			colors: ['#fcff9e'],
+			labels: [labelText],
+			colors: [colorStart],
 			fill: {
 				type: 'gradient',
 				gradient: {
 					shade: 'light',
 					type: 'horizontal',
-					gradientToColors: ['#c67700'],
+					gradientToColors: [colorEnd],
 					stops: [0, 100],
 					opacityFrom: 1,
 					opacityTo: 1
 				}
 			}
-		};
+		});
 
 		if (chartContainer) {
-			const chart = new ApexCharts(chartContainer, options);
+			const chart = new ApexCharts(chartContainer, options(percentage, 'Tu Puntaje', '#c67700', '#fcff9e'));
 			chart.render();
+		}
+
+		if (chartContainerPromedio) {
+			const chartProm = new ApexCharts(chartContainerPromedio, options(75, 'Promedio Polis', '#c67700', '#fcff9e'));
+			chartProm.render();
 		}
 	});
 
