@@ -113,6 +113,8 @@ new PQC_Bootstrap();
 require_once plugin_dir_path( __FILE__ ) . 'overwrites.php';
 require_once plugin_dir_path( __FILE__ ) . 'functions.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-politeia-quiz-stats.php';
+// Cargar el controlador de correos electrónicos del plugin.
+require_once plugin_dir_path( __FILE__ ) . 'emails.php';
 
 
 /* Registration Redirect */

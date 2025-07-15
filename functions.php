@@ -301,3 +301,4 @@ function politeia_add_quiz_result_button() {
 	</script>
 	<?php
 }
+

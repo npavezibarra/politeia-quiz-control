@@ -193,17 +193,27 @@ if ( $current_user_id && $related_product_id ) {
 </table>
 
 <?php
-// Mostrar botón de acción
 echo '<div style="margin-top: 20px;">';
-if ( $has_bought && $course_id ) {
+
+if ( $course_id ) {
+    // Mostrar Go to Course si:
+    // - el curso tiene un ID válido
+    // - y el usuario completó el First Quiz (implícito en esta vista)
+    // - ya sea que lo haya comprado o no (incluye cursos Free)
+
     $course_link = get_permalink( $course_id );
     echo '<a href="' . esc_url( $course_link ) . '" class="button" style="background:black; color:white; padding:10px 20px; text-decoration:none;">Go to Course</a>';
+    
 } elseif ( $related_product_id ) {
+    // Solo mostrar Buy Course si no hay course_id pero sí producto
     $product_link = get_permalink( $related_product_id );
     echo '<a href="' . esc_url( $product_link ) . '" class="button" style="background:black; color:white; padding:10px 20px; text-decoration:none;">Buy Course</a>';
 }
+
 echo '</div>';
 ?>
+
+
 
 
 
@@ -262,22 +272,23 @@ document.addEventListener("DOMContentLoaded", function () {
 				type: 'gradient',
 				gradient: {
 					shade: 'light',
-					type: 'horizontal',
+					type: 'diagonal', // Changed from 'horizontal' to 'diagonal'
 					gradientToColors: [colorEnd],
 					stops: [0, 100],
 					opacityFrom: 1,
-					opacityTo: 1
+					opacityTo: 1,
+					angle: 145 // Added to set the gradient angle to 45 degrees
 				}
 			}
 		});
 
 		if (chartContainer) {
-			const chart = new ApexCharts(chartContainer, options(percentage, 'Tu Puntaje', '#c67700', '#fcff9e'));
+			const chart = new ApexCharts(chartContainer, options(percentage, 'Tu Puntaje', '#d29d01', '#ffd000'));
 			chart.render();
 		}
 
 		if (chartContainerPromedio) {
-			const chartProm = new ApexCharts(chartContainerPromedio, options(75, 'Promedio Polis', '#c67700', '#fcff9e'));
+			const chartProm = new ApexCharts(chartContainerPromedio, options(75, 'Promedio Polis', '#d29d01', '#ffd000'));
 			chartProm.render();
 		}
 	});
