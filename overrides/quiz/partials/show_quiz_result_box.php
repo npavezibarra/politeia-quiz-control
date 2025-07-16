@@ -193,25 +193,33 @@ if ( $current_user_id && $related_product_id ) {
 </table>
 
 <?php
-echo '<div style="margin-top: 20px;">';
+// …código anterior para obtener $course_id, $related_product_id, $has_bought…
+
+echo '<div style="margin-top:20px;">';
 
 if ( $course_id ) {
-    // Mostrar Go to Course si:
-    // - el curso tiene un ID válido
-    // - y el usuario completó el First Quiz (implícito en esta vista)
-    // - ya sea que lo haya comprado o no (incluye cursos Free)
 
-    $course_link = get_permalink( $course_id );
-    echo '<a href="' . esc_url( $course_link ) . '" class="button" style="background:black; color:white; padding:10px 20px; text-decoration:none;">Go to Course</a>';
-    
-} elseif ( $related_product_id ) {
-    // Solo mostrar Buy Course si no hay course_id pero sí producto
-    $product_link = get_permalink( $related_product_id );
-    echo '<a href="' . esc_url( $product_link ) . '" class="button" style="background:black; color:white; padding:10px 20px; text-decoration:none;">Buy Course</a>';
+    if ( $related_product_id && ! $has_bought ) {
+        // Hay producto, pero no lo compró → mostramos “Buy Course”
+        $product_link = get_permalink( $related_product_id );
+        echo '<a href="' . esc_url( $product_link ) . '" class="button"'
+           . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
+           . esc_html__( 'Buy Course', 'text-domain' )
+           . '</a>';
+    } else {
+        // O bien no hay producto (curso free), o ya lo compró → “Go to Course”
+        $course_link = get_permalink( $course_id );
+        echo '<a href="' . esc_url( $course_link ) . '" class="button"'
+           . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
+           . esc_html__( 'Go to Course', 'text-domain' )
+           . '</a>';
+    }
+
 }
 
 echo '</div>';
 ?>
+
 
 
 

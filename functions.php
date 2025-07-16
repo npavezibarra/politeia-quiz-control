@@ -302,3 +302,25 @@ function politeia_add_quiz_result_button() {
 	<?php
 }
 
+/* REMOVES DESCRIPTION TEXT ONCE QUIZ IS STARTED */
+
+function politeia_add_quiz_script() {
+	if ( is_singular( 'sfwd-quiz' ) ) {
+		?>
+		<script>
+		document.addEventListener('DOMContentLoaded', function () {
+			const startBtn = document.querySelector('input[name="startQuiz"]');
+			const introText = document.querySelector('.ld-tabs-content');
+
+			if (startBtn && introText) {
+				startBtn.addEventListener('click', function () {
+					introText.style.display = 'none';
+				});
+			}
+		});
+		</script>
+		<?php
+	}
+}
+add_action( 'wp_footer', 'politeia_add_quiz_script' );
+

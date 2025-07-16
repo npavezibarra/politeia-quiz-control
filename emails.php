@@ -30,7 +30,7 @@ function pqc_get_last_attempt_data( $user_id, $quiz_id ) {
 function pqc_get_quiz_debug_data( $quiz_data, $user ) { // <-- CAMBIO: Acepta el objeto $user
     global $wpdb;
     $user_id = $user->ID; // <-- CAMBIO: Obtenemos el ID del objeto $user
-    $quiz_id = $quiz_data['quiz'];
+    $quiz_id = is_object( $quiz_data['quiz'] ) ? $quiz_data['quiz']->ID : $quiz_data['quiz'];
     
     $course_id_first = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_first_quiz_id' AND meta_value = %d LIMIT 1", $quiz_id ) );
     $course_id_final = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_final_quiz_id' AND meta_value = %d LIMIT 1", $quiz_id ) );
@@ -85,17 +85,24 @@ function pqc_build_html_debug_table( $data ) {
  * Función manejadora que se ejecuta cuando se completa un quiz.
  * Ahora acepta el objeto $user.
  */
-function pqc_quiz_completed_handler( $quiz_data, $user ) { // <-- CAMBIO: Acepta el objeto $user
-
-    require_once plugin_dir_path( __FILE__ ) . 'emails/first-quiz-email.php';
-    
-    // Pasamos el objeto $user a la función que genera el contenido.
-    $email_content = pqc_get_first_quiz_email_content( $quiz_data, $user ); // <-- CAMBIO: Pasamos $user
+function pqc_quiz_completed_handler( $quiz_data, $user ) {
+    $debug = pqc_get_quiz_debug_data( $quiz_data, $user );
 
     $to      = get_option( 'admin_email' );
     $headers = array( 'Content-Type: text/html; charset=UTF-8' );
 
+    if ( $debug['is_first_quiz'] ) {
+        require_once plugin_dir_path( __FILE__ ) . 'emails/first-quiz-email.php';
+        $email_content = pqc_get_first_quiz_email_content( $quiz_data, $user );
+    } elseif ( $debug['is_final_quiz'] ) {
+        require_once plugin_dir_path( __FILE__ ) . 'emails/final-quiz-email.php';
+        $email_content = pqc_get_final_quiz_email_content( $quiz_data, $user );
+    } else {
+        return; // No enviar nada si no es ni First ni Final Quiz
+    }
+
     wp_mail( $to, $email_content['subject'], $email_content['body'], $headers );
 }
+
 // Le decimos a WordPress que nuestra función ahora acepta 2 argumentos.
 add_action( 'learndash_quiz_completed', 'pqc_quiz_completed_handler', 10, 2 ); // <-- CAMBIO: El '1' ahora es un '2'.
