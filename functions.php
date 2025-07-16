@@ -324,3 +324,36 @@ function politeia_add_quiz_script() {
 }
 add_action( 'wp_footer', 'politeia_add_quiz_script' );
 
+/* ENROLL TO CHECKOUT */
+
+// Automatically redirects the user to the checkout page with the product added to the cart
+// when they access a product page that belongs to the 'cursos' category.
+add_action('template_redirect', function() {
+	if ( is_product() && ! is_admin() && ! is_checkout() ) {
+		global $post;
+
+		$product_id = $post->ID;
+
+		// Checks if the product belongs to the 'cursos' category
+		if ( has_term('cursos', 'product_cat', $product_id) ) {
+			wp_safe_redirect( wc_get_checkout_url() . '?add-to-cart=' . $product_id );
+			exit;
+		}
+	}
+});
+
+/**
+ * Clears WooCommerce notices on the checkout page when arriving
+ * via a direct "add-to-cart" link.
+ * This creates a cleaner experience for users coming from a direct link.
+ */
+add_action( 'template_redirect', 'politeia_clear_notices_on_checkout_from_link' );
+
+function politeia_clear_notices_on_checkout_from_link() {
+    // 1. Make sure WooCommerce is active and we are on the checkout page.
+    // 2. Check if the URL contains the 'add-to-cart' parameter.
+    if ( class_exists('WooCommerce') && is_checkout() && isset( $_GET['add-to-cart'] ) ) {
+        // If conditions are met, clear all queued notices.
+        wc_clear_notices();
+    }
+}
