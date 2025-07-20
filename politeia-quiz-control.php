@@ -54,14 +54,20 @@ class PQC_Bootstrap {
      * Encola CSS/JS sólo en la edición de cursos.
      */
 
-    public function enqueue_frontend_assets(): void {
-        wp_enqueue_style(
-            'pqc-style',
-            PQC_PLUGIN_URL . 'assets/style.css',
-            [],               // dependencias
-            PQC_VERSION       // versión cache-busting
-        );
-    }
+public function enqueue_frontend_assets(): void {
+    wp_enqueue_style(
+        'pqc-style',
+        PQC_PLUGIN_URL . 'assets/style.css',
+        [],
+        PQC_VERSION
+    );
+    wp_enqueue_style(
+        'politeia-email-css',
+        PQC_PLUGIN_URL . 'assets/emails.css',
+        [],
+        PQC_VERSION
+    );
+}
 
     public function enqueue_admin_assets( string $hook ) : void {
         if ( ! in_array( $hook, [ 'post.php', 'post-new.php' ], true ) ) {

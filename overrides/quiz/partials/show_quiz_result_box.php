@@ -69,7 +69,6 @@ if ( ! $quiz->isHideResultQuizTime() ) {
 	</div>
 </div>
 
-
 <?php
 if ( ! $quiz->isHideResultCorrectQuestion() ) {
 	echo wp_kses_post(
@@ -101,6 +100,7 @@ if ( ! $quiz->isHideResultCorrectQuestion() ) {
 	);
 	?>
 </p>
+
 <?php
 global $wpdb;
 $current_user_id = get_current_user_id();
@@ -116,6 +116,20 @@ $course_id = $wpdb->get_var( $wpdb->prepare(
 
 // ¿Es First Quiz?
 $is_first_quiz = !empty( $course_id );
+
+// Buscar si este quiz está asignado como Final Quiz en algún curso
+$final_quiz_course_id = $wpdb->get_var( $wpdb->prepare(
+    "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_final_quiz_id' AND meta_value = %d",
+    $quiz_id
+) );
+
+// ¿Es Final Quiz?
+$is_final_quiz = !empty( $final_quiz_course_id );
+
+// Si es Final Quiz, usar ese course_id
+if ( $is_final_quiz ) {
+    $course_id = $final_quiz_course_id;
+}
 
 // Buscar producto relacionado usando meta_value serializado
 $related_product_id = null;
@@ -155,6 +169,23 @@ if ( $current_user_id && $related_product_id ) {
         }
     }
 }
+
+// Obtener el puntaje del First Quiz si estamos en Final Quiz
+$first_quiz_score = 0;
+if ( $is_final_quiz && $course_id ) {
+    $first_quiz_id = get_post_meta( $course_id, '_first_quiz_id', true );
+
+    if ( $first_quiz_id && $current_user_id ) {
+        $latest_id = Politeia_Quiz_Stats::get_latest_attempt_id( $current_user_id, $first_quiz_id );
+        if ( $latest_id ) {
+            $data = Politeia_Quiz_Stats::get_score_and_pct_by_activity( $latest_id );
+            if ( $data && isset( $data->percentage ) ) {
+                $first_quiz_score = round( floatval( $data->percentage ) );
+            }
+        }
+    }
+}
+
 ?>
 
 <table style="width:100%; border-collapse: collapse; font-size: 14px; display:none;">
@@ -168,6 +199,10 @@ if ( $current_user_id && $related_product_id ) {
             <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_first_quiz ? 'TRUE' : 'FALSE'; ?></td>
         </tr>
         <tr>
+            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">¿Es Final Quiz?</th>
+            <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_final_quiz ? 'TRUE' : 'FALSE'; ?></td>
+        </tr>
+        <tr>
             <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Course ID</th>
             <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $course_id ? esc_html( $course_id ) : '—'; ?></td>
         </tr>
@@ -179,6 +214,12 @@ if ( $current_user_id && $related_product_id ) {
             <th style="text-align: left; padding: 8px;">Bought?</th>
             <td style="padding: 8px;"><?php echo $has_bought ? 'TRUE' : 'FALSE'; ?></td>
         </tr>
+        <?php if ( $is_final_quiz ) : ?>
+        <tr>
+            <th style="text-align: left; padding: 8px;">First Quiz Score</th>
+            <td style="padding: 8px;"><?php echo esc_html( $first_quiz_score ); ?>%</td>
+        </tr>
+        <?php endif; ?>
         <?php if ( $has_bought && $order_number ) : ?>
         <tr>
             <th style="text-align: left; padding: 8px;">Order Number</th>
@@ -193,37 +234,28 @@ if ( $current_user_id && $related_product_id ) {
 </table>
 
 <?php
-// …código anterior para obtener $course_id, $related_product_id, $has_bought…
-
 echo '<div style="margin-top:20px;">';
 
 if ( $course_id ) {
-
     if ( $related_product_id && ! $has_bought ) {
-        // Hay producto, pero no lo compró → mostramos “Buy Course”
+        // Hay producto, pero no lo compró → mostramos "Buy Course"
         $product_link = get_permalink( $related_product_id );
         echo '<a href="' . esc_url( $product_link ) . '" class="button"'
            . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
            . esc_html__( 'Buy Course', 'text-domain' )
            . '</a>';
     } else {
-        // O bien no hay producto (curso free), o ya lo compró → “Go to Course”
+        // O bien no hay producto (curso free), o ya lo compró → "Go to Course"
         $course_link = get_permalink( $course_id );
         echo '<a href="' . esc_url( $course_link ) . '" class="button"'
            . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
            . esc_html__( 'Go to Course', 'text-domain' )
            . '</a>';
     }
-
 }
 
 echo '</div>';
 ?>
-
-
-
-
-
 
 <!-- ApexCharts CDN -->
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
@@ -237,6 +269,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
 	const chartContainer = document.querySelector("#radial-chart");
 	const chartContainerPromedio = document.querySelector("#radial-chart-promedio");
+
+	// Determinar si es Final Quiz desde PHP
+	const isFinalQuiz = <?php echo $is_final_quiz ? 'true' : 'false'; ?>;
+	const firstQuizScore = <?php echo $first_quiz_score; ?>;
 
 	const observer = new MutationObserver(function () {
 		const percentageText = span.innerText.replace('%', '').trim();
@@ -280,24 +316,39 @@ document.addEventListener("DOMContentLoaded", function () {
 				type: 'gradient',
 				gradient: {
 					shade: 'light',
-					type: 'diagonal', // Changed from 'horizontal' to 'diagonal'
+					type: 'diagonal',
 					gradientToColors: [colorEnd],
 					stops: [0, 100],
 					opacityFrom: 1,
 					opacityTo: 1,
-					angle: 145 // Added to set the gradient angle to 45 degrees
+					angle: 145
 				}
 			}
 		});
 
-		if (chartContainer) {
-			const chart = new ApexCharts(chartContainer, options(percentage, 'Tu Puntaje', '#d29d01', '#ffd000'));
-			chart.render();
-		}
+		// Configurar gráficos según el tipo de quiz
+		if (isFinalQuiz) {
+			// Para Final Quiz: mostrar Final Score y First Score
+			if (chartContainer) {
+				const chart = new ApexCharts(chartContainer, options(percentage, 'Final Score', '#d29d01', '#ffd000'));
+				chart.render();
+			}
 
-		if (chartContainerPromedio) {
-			const chartProm = new ApexCharts(chartContainerPromedio, options(75, 'Promedio Polis', '#d29d01', '#ffd000'));
-			chartProm.render();
+			if (chartContainerPromedio) {
+				const chartFirst = new ApexCharts(chartContainerPromedio, options(firstQuizScore, 'First Score', '#d29d01', '#ffd000'));
+				chartFirst.render();
+			}
+		} else {
+			// Para First Quiz: mostrar Tu Puntaje y Promedio Polis
+			if (chartContainer) {
+				const chart = new ApexCharts(chartContainer, options(percentage, 'Tu Puntaje', '#d29d01', '#ffd000'));
+				chart.render();
+			}
+
+			if (chartContainerPromedio) {
+				const chartProm = new ApexCharts(chartContainerPromedio, options(75, 'Promedio Polis', '#d29d01', '#ffd000'));
+				chartProm.render();
+			}
 		}
 	});
 
