@@ -72,7 +72,7 @@ function pqc_get_final_quiz_email_content( $quiz_data, $user ) {
 	$chart_url_final = politeia_generate_quickchart_url( $final_score );
 	$chart_url_first = politeia_generate_quickchart_url( $first_score );
 
-	$courses_url = home_url( '/cursos/' );
+	$courses_url = home_url( '/courses/' );
 
 	$body  = '<div id="pqc-email-wrapper" style="background-color: #f8f8f8; padding: 30px 0;">';
 	$body .= '<div id="pqc-email-card" style="background: white; max-width: 700px; margin: auto; border-radius: 6px; border: 1px solid #d5d5d5; font-family: sans-serif; color: #333;">';
@@ -87,25 +87,25 @@ function pqc_get_final_quiz_email_content( $quiz_data, $user ) {
 	$body .= '</div>';
 
 	$body .= '<div id="pqc-knowledge-increase" style="text-align: center; padding: 40px 30px; border-bottom: 1px solid black;">';
-	$body .= '<p style="margin: 0;">You increased your knowledge by <strong>' . $increase . '%</strong> after completing the course.</p>';
+	$body .= '<h2 style="margin: 0;">You increased your knowledge by <strong>' . $increase . '%</strong> after completing the course.</h2>';
 	$body .= '</div>';
 
 	$body .= '<div id="pqc-results-graphs" style="display: flex; justify-content: space-around; align-items: center; padding: 30px 10px; gap: 20px; flex-wrap: wrap; border-bottom: 1px solid black;">';
 
 	$body .= '<div id="pqc-final-quiz" style="text-align: center;">';
 	$body .= '<h3 style="margin-bottom: 10px;">Final Quiz Result</h3>';
-	$body .= '<img src="' . esc_url( $chart_url_final ) . '" alt="Final Score" style="max-width: 200px;">';
+	$body .= '<img src="' . esc_url( $chart_url_final ) . '" alt="Final Score" style="max-width: 300px;">';
 	$body .= '</div>';
 
 	$body .= '<div id="pqc-first-quiz" style="text-align: center;">';
 	$body .= '<h3 style="margin-bottom: 10px;">First Quiz Result</h3>';
-	$body .= '<img src="' . esc_url( $chart_url_first ) . '" alt="First Score" style="max-width: 200px;">';
+	$body .= '<img src="' . esc_url( $chart_url_first ) . '" alt="First Score" style="max-width: 300px;">';
 	$body .= '</div>';
 
 	$body .= '</div>';
 
 	$body .= '<div id="pqc-footer-cta" style="text-align: center; padding: 20px 30px;">';
-	$body .= '<p>📚 Continue learning! Check out our full course catalogue:</p>';
+	$body .= '<p>📚 Continue learning! Check out our full course catalogue:</p><br>';
 	$body .= '<p><a href="' . esc_url( $courses_url ) . '" style="background-color: #000000; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Browse Courses</a></p>';
 	$body .= '</div>';
 
