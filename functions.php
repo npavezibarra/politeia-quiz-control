@@ -357,3 +357,298 @@ function politeia_clear_notices_on_checkout_from_link() {
         wc_clear_notices();
     }
 }
+
+/* SOBREESCRIBIR QUIZ DUANDO NO HAY 100% LESSONS COMPLETE */
+
+add_action('template_redirect', 'politeia_block_final_quiz_if_no_progress');
+function politeia_block_final_quiz_if_no_progress() {
+    if (!is_singular('sfwd-quiz') || !is_user_logged_in()) {
+        return;
+    }
+
+    global $post, $wpdb;
+
+    $quiz_id = $post->ID;
+    $user_id = get_current_user_id();
+
+    // Detect associated course
+    $course_id_final = $wpdb->get_var( $wpdb->prepare( "
+        SELECT post_id FROM {$wpdb->postmeta}
+        WHERE meta_key = '_final_quiz_id' AND meta_value = %d
+        LIMIT 1
+    ", $quiz_id ) );
+
+    if (!$course_id_final) return;
+
+    $final_quiz_id = get_post_meta($course_id_final, '_final_quiz_id', true);
+    $is_final_quiz = (int)$quiz_id === (int)$final_quiz_id;
+
+    if (!$is_final_quiz) return;
+
+    // Check course progress
+    $progress_data = learndash_course_progress([
+        'user_id'   => $user_id,
+        'course_id' => $course_id_final,
+        'array'     => true
+    ]);
+    $progress = isset($progress_data['percentage']) ? intval($progress_data['percentage']) : 0;
+
+    if ($progress >= 100) return;
+
+    // If course not completed, intercept and display message
+    wp_die(
+        '<div style="text-align:center; padding: 3em; border: 2px dashed #ccc; background: #fff;">
+            <h2 style="color:#b71c1c; font-size: 1.5em;">' . esc_html__('You must complete all course lessons before taking the Final Quiz.', 'text-domain') . '</h2>
+            <a href="' . esc_url(get_permalink($course_id_final)) . '" 
+                style="display:inline-block; margin-top:2em; padding:0.85em 1.5em; background:black; color:#fff; font-weight:bold; border-radius:6px; text-decoration:none;">
+                ' . esc_html__('Resume Course', 'text-domain') . '
+            </a>
+        </div>',
+        '',
+        ['response' => 200]
+    );
+}
+
+
+/**
+ * FUNCIÓN 1: MOSTRAR INFORMACIÓN EN EL CHECKOUT
+ * ---------------------------------------------
+ * Su única responsabilidad es mostrar las tablas de compras pasadas y del carrito actual.
+ * Ya no se encarga de eliminar productos, solo de mostrar el estado "Ya compraste este curso".
+ */
+function mostrar_info_usuario_checkout() {
+    if ( ! is_user_logged_in() || ! is_checkout() ) {
+        return;
+    }
+
+    $user_id = get_current_user_id();
+
+    $purchased_product_ids = [];
+    $customer_orders = wc_get_orders( array(
+        'customer_id' => $user_id,
+        'limit'       => -1,
+        'status'      => array('completed', 'processing', 'on-hold'),
+    ) );
+
+    if ( ! empty($customer_orders) ) {
+        foreach ( $customer_orders as $order ) {
+            foreach ( $order->get_items() as $item ) {
+                $purchased_product_ids[] = $item->get_product_id();
+            }
+        }
+    }
+
+    // --- NEW LOGIC START ---
+    $display_checkout_info = false;
+
+    // Check if there are any messages from bfg_validar_y_avisar_compra_duplicada
+    global $politeia_checkout_messages;
+    if ( ! empty( $politeia_checkout_messages ) ) {
+        $display_checkout_info = true;
+    }
+
+    // Check if any cart item is a 'course' and has been purchased
+    if ( ! $display_checkout_info ) { // Only proceed if not already marked for display by messages
+        foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+            $product = $cart_item['data'];
+            $product_id = $product->get_id();
+
+            // Check if the product has the 'courses' category
+            $terms = get_the_terms( $product_id, 'product_cat' );
+            if ( $terms && ! is_wp_error( $terms ) ) {
+                foreach ( $terms as $term ) {
+                    if ( $term->slug === 'courses' && in_array( $product_id, $purchased_product_ids ) ) {
+                        $display_checkout_info = true;
+                        break 2; // Exit both inner and outer loops
+                    }
+                }
+            }
+        }
+    }
+
+    // Additionally, check if there are any past orders to display in the "Purchases" section
+    if ( ! $display_checkout_info && ! empty( $customer_orders ) ) {
+        $display_checkout_info = true;
+    }
+
+    // If no conditions met, do not print the div
+    if ( ! $display_checkout_info ) {
+        return;
+    }
+    // --- NEW LOGIC END ---
+
+    echo '<div id="repeat-course-purchase-message" style="border:1px solid #d6d9dd; padding:15px; margin-bottom:20px;">';
+
+    // Mostrar mensajes desplazados al div de arriba
+    // global $politeia_checkout_messages; // Already globalized above
+    echo '<div id="purchases-table">';
+    if ( ! empty( $politeia_checkout_messages ) ) {
+        foreach ( $politeia_checkout_messages as $msg ) {
+            echo '<div class="woocommerce-message" role="alert" style="color:red;">' . $msg . '</div>';
+        }
+    }
+    echo '</div>';
+
+    $user_info = get_userdata( $user_id );
+    echo '<strong>User Name:</strong> ' . esc_html( $user_info->user_login ) . '<br>';
+    echo '<strong>Purchases:</strong><br>';
+
+    if ( ! empty( $customer_orders ) ) {
+        echo '<table style="width:100%; border-collapse:collapse; margin-top:10px;">';
+        echo '<thead><tr>
+                <th style="border:1px solid #ccc; padding:8px;">Order ID</th>
+                <th style="border:1px solid #ccc; padding:8px;">Status</th>
+                <th style="border:1px solid #ccc; padding:8px;">Total</th>
+                <th style="border:1px solid #ccc; padding:8px;">Date</th>
+                <th style="border:1px solid #ccc; padding:8px;">Items</th>
+                <th style="border:1px solid #ccc; padding:8px;">Category</th>
+              </tr></thead><tbody>';
+        foreach ( $customer_orders as $order ) {
+            echo '<tr>';
+            echo '<td style="border:1px solid #ccc; padding:8px;">#' . esc_html( $order->get_id() ) . '</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px;">' . esc_html( wc_get_order_status_name( $order->get_status() ) ) . '</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px;">' . wp_kses_post( $order->get_formatted_order_total() ) . '</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px;">' . esc_html( $order->get_date_created()->date( 'Y-m-d' ) ) . '</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px;">';
+            $categories = [];
+            foreach ( $order->get_items() as $item ) {
+                echo esc_html( $item->get_name() ) . ' (x' . esc_html( $item->get_quantity() ) . ')<br>';
+                $terms = get_the_terms( $item->get_product_id(), 'product_cat' );
+                if ( $terms && ! is_wp_error( $terms ) ) {
+                    foreach ( $terms as $term ) { $categories[] = $term->name; }
+                }
+            }
+            echo '</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px;">' . esc_html( implode( ', ', array_unique( $categories ) ) ) . '</td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+    } else {
+        echo '<p>No purchases found.</p>';
+    }
+
+    // Tabla del carrito
+    echo '<div id="debug-purchase-table" style="display:none">';
+    echo '<h3 style="margin-top:30px;">Current Cart</h3>';
+    echo '<table style="width:100%; border-collapse:collapse;">';
+    echo '<thead><tr>
+            <th style="border:1px solid #ccc; padding:8px;">Product</th>
+            <th style="border:1px solid #ccc; padding:8px;">Category</th>
+            <th style="border:1px solid #ccc; padding:8px;">Related Course</th>
+            <th style="border:1px solid #ccc; padding:8px;">Course ID</th>
+            <th style="border:1px solid #ccc; padding:8px;">Estado</th>
+          </tr></thead><tbody>';
+
+    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+        $product = $cart_item['data'];
+        $product_id = $product->get_id();
+
+        $related_course_id = '';
+        $related_course_raw = get_post_meta( $product_id, '_related_course', true );
+        $course_data = maybe_unserialize( $related_course_raw );
+        if ( is_array( $course_data ) && ! empty( $course_data ) ) {
+            $related_course_id = (int) reset( $course_data );
+        } elseif ( is_numeric( $course_data ) ) {
+            $related_course_id = (int) $course_data;
+        }
+
+        echo '<tr>';
+        echo '<td style="border:1px solid #ccc; padding:8px;">' . esc_html( $product->get_name() ) . '</td>';
+        echo '<td style="border:1px solid #ccc; padding:8px;">' . wc_get_product_category_list( $product_id ) . '</td>';
+        echo '<td style="border:1px solid #ccc; padding:8px;">' . ( $related_course_id ? 'true' : 'false' ) . '</td>';
+        echo '<td style="border:1px solid #ccc; padding:8px;">' . esc_html( $related_course_id ) . '</td>';
+        echo '<td style="border:1px solid #ccc; padding:8px;">' . ( in_array( $product_id, $purchased_product_ids ) ? '<span style="color:red;">Curso ya comprado</span>' : 'Disponible para comprar' ) . '</td>';
+        echo '</tr>';
+    }
+
+    global $politeia_removed_from_cart;
+    if ( ! empty( $politeia_removed_from_cart ) ) {
+        foreach ( $politeia_removed_from_cart as $removed ) {
+            echo '<tr>';
+            echo '<td style="border:1px solid #ccc; padding:8px; color:#999;">' . esc_html( $removed['product_name'] ) . '</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px; color:#999;">' . $removed['categories'] . '</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px; color:#999;">true</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px; color:#999;">' . esc_html( $removed['related_course_id'] ) . '</td>';
+            echo '<td style="border:1px solid #ccc; padding:8px; color:red;">Curso ya comprado</td>';
+            echo '</tr>';
+        }
+    }
+
+    echo '</tbody></table>';
+    echo '</div>';
+    echo '</div>';
+}
+add_action( 'woocommerce_before_checkout_form', 'mostrar_info_usuario_checkout', 5 );
+
+
+
+/**
+ * FUNCIÓN 2: VALIDAR Y MOSTRAR AVISO PERSONALIZADO (Versión Modificada)
+ * -------------------------------------------------------------------
+ * Valida el carrito y si un curso ya fue comprado:
+ * 1. Lo elimina del carrito.
+ * 2. Muestra un aviso personalizado con un enlace directo al curso.
+ */
+function bfg_validar_y_avisar_compra_duplicada() {
+    if ( is_admin() || ! is_user_logged_in() || ! WC()->cart ) {
+        return;
+    }
+
+    global $politeia_removed_from_cart, $politeia_checkout_messages;
+    if ( ! isset( $politeia_removed_from_cart ) ) {
+        $politeia_removed_from_cart = [];
+    }
+    if ( ! isset( $politeia_checkout_messages ) ) {
+        $politeia_checkout_messages = [];
+    }
+
+    $user_id = get_current_user_id();
+
+    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+        $product_id = $cart_item['product_id'];
+
+        if ( wc_customer_bought_product( '', $user_id, $product_id ) ) {
+            $related_course_id = '';
+            $related_course_raw = get_post_meta( $product_id, '_related_course', true );
+            $course_data = maybe_unserialize( $related_course_raw );
+
+            if ( is_array( $course_data ) && ! empty( $course_data ) ) {
+                $related_course_id = (int) reset( $course_data );
+            } elseif ( is_numeric( $course_data ) ) {
+                $related_course_id = (int) $course_data;
+            }
+
+            $titulo_curso = $related_course_id ? get_the_title( $related_course_id ) : '';
+            $url_curso = $related_course_id ? get_permalink( $related_course_id ) : '';
+
+            // Guardar mensaje
+            $mensaje_personalizado = 'Ya compraste este curso.';
+            if ( $related_course_id && get_post_status( $related_course_id ) === 'publish' ) {
+                $mensaje_personalizado .= sprintf(
+                    '<br>Puedes acceder en <a href="%s" style="font-weight:bold; text-decoration:underline;">%s</a>',
+                    esc_url( $url_curso ),
+                    esc_html( $titulo_curso )
+                );
+            }
+
+            $politeia_checkout_messages[] = $mensaje_personalizado;
+
+            // Guardar para mostrarlo en tabla
+            $politeia_removed_from_cart[] = [
+                'product_id'          => $product_id,
+                'product_name'        => get_the_title( $product_id ),
+                'categories'          => wc_get_product_category_list( $product_id ),
+                'related_course_id'   => $related_course_id,
+                'related_course_name' => $titulo_curso,
+                'related_course_url'  => $url_curso,
+            ];
+
+            // Eliminar producto del carrito
+            WC()->cart->remove_cart_item( $cart_item_key );
+        }
+    }
+}
+add_action( 'woocommerce_before_checkout_form', 'bfg_validar_y_avisar_compra_duplicada', 1 );
+add_action( 'woocommerce_before_cart', 'bfg_validar_y_avisar_compra_duplicada', 1 );
+
+?>

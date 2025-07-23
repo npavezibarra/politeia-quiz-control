@@ -6,7 +6,7 @@
 get_header();
 
 the_post();
-
+remove_all_actions('learndash-quiz-content'); // bloquear inyección automática del contenido del quiz
 
 // =================================================================
 // FUNCIÓN CORREGIDA PARA OBTENER DATOS DEL ÚLTIMO INTENTO
@@ -105,7 +105,7 @@ $progress = isset($progress_data['percentage']) ? $progress_data['percentage'] :
 
 <!--DEBUG TABLE-->
 <div class="quiz-wrap">
-  <div style="padding:40px; max-width:600px; margin:auto; display: none; ">
+  <div style="padding:40px; max-width:600px; margin:auto;">
     <table style="border-collapse: collapse; width: 100%; font-family: monospace;">
       <tr><td>CURRENT QUIZ:</td><td><?= esc_html( $quiz_id ); ?></td></tr>
       <tr><td>QUIZ NAME:</td><td><?= esc_html( $quiz_title ); ?></td></tr>
@@ -122,23 +122,7 @@ $progress = isset($progress_data['percentage']) ? $progress_data['percentage'] :
   </div>
 
   <div class="page-content">
-    <?php
-    if ( $is_final_quiz && intval( $progress ) < 100 ) {
-        $course_title = get_the_title( $course_id );
-        $quiz_title   = get_the_title( $quiz_id );
-        echo '<div style="display:flex; align-items:center; justify-content:center; height:60vh;">';
-        echo '<div style="text-align:center; padding: 2em; max-width:600px;">';
-        echo '<h3 style="color:#333; line-height:1.5;">';
-        echo 'You have completed <strong>' . esc_html($progress) . '%</strong> of the lessons. ';
-        echo 'Finish the course <strong>' . esc_html($course_title) . '</strong> and you\'ll be able to take the <strong>' . esc_html($quiz_title) . '</strong> to check your progress.';
-        echo '</h3>';
-        echo '<a id="reanudar-curso-btn" href="' . esc_url( get_permalink( $course_id ) ) . '" style="display:inline-block; margin-top:1em; padding:0.5em 1em; background:#000; color:#fff; border-radius:5px; text-decoration:none;">Resume Course</a>';
-        echo '</div>';
-        echo '</div>';
-    } else {
-        the_content();
-    }
-    ?>
+    <?php the_content(); ?>
 
     <?php
     // Mostrar el quiz si corresponde
@@ -177,4 +161,3 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <?php
 get_footer();
-?>

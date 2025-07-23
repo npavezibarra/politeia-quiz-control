@@ -188,86 +188,82 @@ if ( $is_final_quiz && $course_id ) {
         ?>
     </p>
 
-    <?php if ( $is_final_quiz ) : ?>
-        
-        <?php
-        if ( current_user_can( 'manage_options' ) ) :
-        ?>
-            <table style="width:100%; border-collapse: collapse; font-size: 14px; margin-top: 20px; border: 1px dashed #ccc;">
-                <caption style="font-weight: bold; padding: 5px;">Admin Debug Info</caption>
-                <tbody>
-                    <tr>
-                        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Quiz ID</th>
-                        <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo esc_html( $quiz_id ); ?></td>
-                    </tr>
-                    <tr>
-                        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">¿Es First Quiz?</th>
-                        <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_first_quiz ? 'TRUE' : 'FALSE'; ?></td>
-                    </tr>
-                    <tr>
-                        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">¿Es Final Quiz?</th>
-                        <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_final_quiz ? 'TRUE' : 'FALSE'; ?></td>
-                    </tr>
-                    <tr>
-                        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Course ID</th>
-                        <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $course_id ? esc_html( $course_id ) : '—'; ?></td>
-                    </tr>
-                    <tr>
-                        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Related Product ID</th>
-                        <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $related_product_id ? esc_html( $related_product_id ) : '—'; ?></td>
-                    </tr>
-                    <tr>
-                        <th style="text-align: left; padding: 8px;">Bought?</th>
-                        <td style="padding: 8px;"><?php echo $has_bought ? 'TRUE' : 'FALSE'; ?></td>
-                    </tr>
-                    <?php if ( $is_final_quiz ) : ?>
-                    <tr>
-                        <th style="text-align: left; padding: 8px;">First Quiz Score</th>
-                        <td style="padding: 8px;"><?php echo esc_html( $first_quiz_score ); ?>%</td>
-                    </tr>
-                    <?php endif; ?>
-                    <?php if ( $has_bought && $order_number ) : ?>
-                    <tr>
-                        <th style="text-align: left; padding: 8px;">Order Number</th>
-                        <td style="padding: 8px;"><?php echo esc_html( $order_number ); ?></td>
-                    </tr>
-                    <tr>
-                        <th style="text-align: left; padding: 8px;">Order Status</th>
-                        <td style="padding: 8px;"><?php echo esc_html( ucfirst( $order_status ) ); ?></td>
-                    </tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
-
-        <?php
-        echo '<div style="margin-top:20px;">';
-
-        if ( $is_first_quiz && $course_id ) {
-			if ( $related_product_id && ! $has_bought ) {
-				$product_link = get_permalink( $related_product_id );
-				echo '<a href="' . esc_url( $product_link ) . '" class="button"'
-				   . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
-				   . esc_html__( 'Buy Course', 'text-domain' )
-				   . '</a>';
-			} else {
-				$course_link = get_permalink( $course_id );
-				echo '<a href="' . esc_url( $course_link ) . '" class="button"'
-				   . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
-				   . esc_html__( 'Go to Course', 'text-domain' )
-				   . '</a>';
-			}
-		} elseif ( $is_final_quiz ) {
-			echo '<a href="' . esc_url( home_url( '/courses/' ) ) . '" class="button"'
-			   . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
-			   . esc_html__( 'More Courses', 'text-domain' )
-			   . '</a>';
-		}		
-
-        echo '</div>';
-        ?>
+    <?php // La tabla de debug se queda aquí, solo para el Final Quiz
+    if ( $is_final_quiz && current_user_can( 'manage_options' ) ) :
+    ?>
+        <table style="width:100%; border-collapse: collapse; font-size: 14px; margin-top: 20px; border: 1px dashed #ccc; display:none;">
+            <caption style="font-weight: bold; padding: 5px;">Admin Debug Info</caption>
+            <tbody>
+                <tr>
+                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Quiz ID</th>
+                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo esc_html( $quiz_id ); ?></td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">¿Es First Quiz?</th>
+                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_first_quiz ? 'TRUE' : 'FALSE'; ?></td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">¿Es Final Quiz?</th>
+                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_final_quiz ? 'TRUE' : 'FALSE'; ?></td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Course ID</th>
+                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $course_id ? esc_html( $course_id ) : '—'; ?></td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Related Product ID</th>
+                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $related_product_id ? esc_html( $related_product_id ) : '—'; ?></td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 8px;">Bought?</th>
+                    <td style="padding: 8px;"><?php echo $has_bought ? 'TRUE' : 'FALSE'; ?></td>
+                </tr>
+                <?php if ( $is_final_quiz ) : ?>
+                <tr>
+                    <th style="text-align: left; padding: 8px;">First Quiz Score</th>
+                    <td style="padding: 8px;"><?php echo esc_html( $first_quiz_score ); ?>%</td>
+                </tr>
+                <?php endif; ?>
+                <?php if ( $has_bought && $order_number ) : ?>
+                <tr>
+                    <th style="text-align: left; padding: 8px;">Order Number</th>
+                    <td style="padding: 8px;"><?php echo esc_html( $order_number ); ?></td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 8px;">Order Status</th>
+                    <td style="padding: 8px;"><?php echo esc_html( ucfirst( $order_status ) ); ?></td>
+                </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
     <?php endif; ?>
 
+    <?php
+    echo '<div style="margin-top:20px;">';
+
+    if ( $is_first_quiz && $course_id ) {
+        if ( $related_product_id && ! $has_bought ) {
+            $product_link = get_permalink( $related_product_id );
+            echo '<a href="' . esc_url( $product_link ) . '" class="button"'
+               . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
+               . esc_html__( 'Buy Course', 'text-domain' )
+               . '</a>';
+        } else {
+            $course_link = get_permalink( $course_id );
+            echo '<a href="' . esc_url( $course_link ) . '" class="button"'
+               . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
+               . esc_html__( 'Go to Course', 'text-domain' )
+               . '</a>';
+        }
+    } elseif ( $is_final_quiz ) {
+        echo '<a href="' . esc_url( home_url( '/courses/' ) ) . '" class="button"'
+           . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
+           . esc_html__( 'More Courses', 'text-domain' )
+           . '</a>';
+    }       
+
+    echo '</div>';
+    ?>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script>
     document.addEventListener("DOMContentLoaded", function () {
@@ -322,42 +318,37 @@ if ( $is_final_quiz && $course_id ) {
                 if (chartContainerPromedio) new ApexCharts(chartContainerPromedio, options(75, 'Promedio Polis', '#d29d01', '#ffd000')).render();
             }
 
-            // ========= INICIO DE LA LÓGICA DE PROGRESO MODIFICADA =========
             const scoreDiv = document.getElementById("score");
             if (scoreDiv && isFinalQuiz) {
                 const progreso = FinalScore - FirstScore;
                 let mensajeHTML = '';
 
                 if (progreso > 0) {
-					// Positive progress message
-					mensajeHTML = `
-						<h2 style="text-align: center; color: #000;">Congratulations on your progress!</h2>
-						<p style="font-weight: normal; color: #333; text-align: center;">
-							You improved your score by <strong style="color: #4CAF50;">+${progreso} points</strong>. Great job!
-						</p>
-					`;
-				} else if (progreso === 0) {
-					// No change in score
-					mensajeHTML = `
-						<h2 style="text-align: center; color: #000;">Congratulations on completing the course!</h2>
-						<p style="font-weight: normal; color: #333; text-align: center;">
-							Your knowledge has been reinforced. Your progress was <strong>${progreso} points</strong>.
-						</p>
-					`;
-				} else {
-					// Negative progress
-					mensajeHTML = `
-						<h2 style="text-align: center; color: #000;">Keep going – you're not alone!</h2>
-						<p style="font-weight: normal; color: #333; text-align: center;">
-							Your score changed by <strong style="color: #D32F2F;">${progreso} points</strong>.
-							This is uncommon, but nothing to worry about. You can review the lessons and take the Final Quiz again in 10 days.
-						</p>
-					`;
-				}
+                    mensajeHTML = `
+                        <h2 style="text-align: center; color: #000;">Congratulations on your progress!</h2>
+                        <p style="font-weight: normal; color: #333; text-align: center;">
+                            You improved your score by <strong style="color: #4CAF50;">+${progreso} points</strong>. Great job!
+                        </p>
+                    `;
+                } else if (progreso === 0) {
+                    mensajeHTML = `
+                        <h2 style="text-align: center; color: #000;">Congratulations on completing the course!</h2>
+                        <p style="font-weight: normal; color: #333; text-align: center;">
+                            Your knowledge has been reinforced. Your progress was <strong>${progreso} points</strong>.
+                        </p>
+                    `;
+                } else {
+                    mensajeHTML = `
+                        <h2 style="text-align: center; color: #000;">Keep going – you're not alone!</h2>
+                        <p style="font-weight: normal; color: #333; text-align: center;">
+                            Your score changed by <strong style="color: #D32F2F;">${progreso} points</strong>.
+                            This is uncommon, but nothing to worry about. You can review the lessons and take the Final Quiz again in 10 days.
+                        </p>
+                    `;
+                }
 
                 scoreDiv.innerHTML = mensajeHTML;
             }
-            // ========= FIN DE LA LÓGICA DE PROGRESO MODIFICADA =========
         });
 
         observer.observe(span, { childList: true, characterData: true, subtree: true });

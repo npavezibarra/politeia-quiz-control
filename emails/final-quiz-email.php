@@ -7,12 +7,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/**
- * Genera una URL QuickChart.io para el gráfico circular sin leyenda ni etiquetas.
- *
- * @param int $value Valor del porcentaje.
- * @return string URL codificada.
- */
 function politeia_generate_quickchart_url( $value ) {
 	$config = [
 		'type' => 'doughnut',
@@ -47,13 +41,6 @@ function politeia_generate_quickchart_url( $value ) {
 	return 'https://quickchart.io/chart?c=' . urlencode( json_encode( $config ) );
 }
 
-/**
- * Genera el contenido para el correo del quiz final, incluyendo tabla de depuración y gráficos.
- *
- * @param array    $quiz_data Datos del quiz completado.
- * @param WP_User  $user      Objeto del usuario que completó el quiz.
- * @return array Contiene 'subject' y 'body'.
- */
 function pqc_get_final_quiz_email_content( $quiz_data, $user ) {
 	$debug_data = pqc_get_quiz_debug_data( $quiz_data, $user );
 
@@ -67,7 +54,25 @@ function pqc_get_final_quiz_email_content( $quiz_data, $user ) {
 	$first_score = min( 100, max( 0, $first_score ) );
 	$final_score = min( 100, max( 0, $final_score ) );
 
-	$increase = max( 0, $final_score - $first_score );
+	$progreso = $final_score - $first_score;
+
+	// Mensaje dinámico para knowledge-increase
+	if ( $progreso > 0 ) {
+		$mensaje_knowledge = '
+			<h2 style="margin: 0; text-align: center; color: #000;">You improved your score by <strong style="color: #4CAF50;">+' . $progreso . ' points</strong>. Great job!</h2>
+		';
+	} elseif ( $progreso === 0 ) {
+		$mensaje_knowledge = '
+			<h2 style="margin: 0; text-align: center; color: #000;">Your knowledge has been reinforced. Your progress was <strong>0 points</strong>.</h2>
+		';
+	} else {
+		$mensaje_knowledge = '
+			<h2 style="margin: 0; text-align: center; color: #000;">Your score changed by <strong style="color: #D32F2F;">' . $progreso . ' points</strong>.</h2>
+			<p style="margin-top: 5px; font-weight: normal; color: #333; text-align: center;">
+				This is uncommon, but nothing to worry about. You can review the lessons and take the Final Quiz again in 10 days.
+			</p>
+		';
+	}
 
 	$chart_url_final = politeia_generate_quickchart_url( $final_score );
 	$chart_url_first = politeia_generate_quickchart_url( $first_score );
@@ -81,13 +86,15 @@ function pqc_get_final_quiz_email_content( $quiz_data, $user ) {
 	$body .= '<img src="' . esc_url( $logo_url ) . '" alt="Politeia Logo" style="max-width: 200px;">';
 	$body .= '</div>';
 
+	// mensaje estático
 	$body .= '<div id="pqc-congrats-message" style="text-align: center; padding: 20px 30px; border-top: 1px solid black; border-bottom: 1px solid black;">';
 	$body .= '<h2 style="margin: 0;">🎉 Congratulations!</h2>';
 	$body .= '<p style="margin: 5px 0;">You finished the course <strong>' . esc_html( $debug_data['course_title'] ) . '</strong>.</p>';
 	$body .= '</div>';
 
+	// mensaje dinámico
 	$body .= '<div id="pqc-knowledge-increase" style="text-align: center; padding: 40px 30px; border-bottom: 1px solid black;">';
-	$body .= '<h2 style="margin: 0;">You increased your knowledge by <strong>' . $increase . '%</strong> after completing the course.</h2>';
+	$body .= $mensaje_knowledge;
 	$body .= '</div>';
 
 	$body .= '<div id="pqc-results-graphs" style="display: flex; justify-content: space-around; align-items: center; padding: 30px 10px; gap: 20px; flex-wrap: wrap; border-bottom: 1px solid black;">';
@@ -116,4 +123,3 @@ function pqc_get_final_quiz_email_content( $quiz_data, $user ) {
 		'body'    => $body,
 	];
 }
-
