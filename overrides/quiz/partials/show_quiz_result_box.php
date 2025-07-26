@@ -365,215 +365,213 @@ if ( $quiz_id ) {
     echo '</div>';
     ?>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-    <script>
-    document.addEventListener("DOMContentLoaded", function () {
-        const target = document.querySelector(".wpProQuiz_points.wpProQuiz_points--message");
-        if (!target) return;
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const target = document.querySelector(".wpProQuiz_points.wpProQuiz_points--message");
+    if (!target) return;
 
-        const span = target.querySelectorAll("span")[2];
-        if (!span) return;
+    const span = target.querySelectorAll("span")[2];
+    if (!span) return;
 
-        const chartContainer         = document.querySelector("#radial-chart");
-        const chartContainerPromedio = document.querySelector("#radial-chart-promedio");
-        const datosDelIntentoContainer = document.getElementById("datos-del-intento-container");
+    const chartContainer         = document.querySelector("#radial-chart");
+    const chartContainerPromedio = document.querySelector("#radial-chart-promedio");
+    const datosDelIntentoContainer = document.getElementById("datos-del-intento-container");
 
-        const isFinalQuiz = <?php echo $is_final_quiz ? 'true' : 'false'; ?>;
-        const firstQuizScore = <?php echo $first_quiz_score; ?>;
-        const polisAverageInitialPHP = <?php echo $polis_average; ?>; 
-        const currentQuizId = <?php echo $quiz_id; ?>;
-        const ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
-        const phpInitialLatestActivityId = <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : '0' ); ?>; 
+    const isFinalQuiz = <?php echo $is_final_quiz ? 'true' : 'false'; ?>;
+    const firstQuizScore = <?php echo $first_quiz_score; ?>;
+    const polisAverageInitialPHP = <?php echo $polis_average; ?>; 
+    const currentQuizId = <?php echo $quiz_id; ?>;
+    const ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
+    const phpInitialLatestActivityId = <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : '0' ); ?>; 
 
-        let FinalScore = 0;
-        let FirstScore = firstQuizScore;
+    let FinalScore = 0;
+    let FirstScore = firstQuizScore;
 
-        const observer = new MutationObserver(function () {
-            const percentageText = span.innerText.replace('%', '').trim();
-            const percentage = parseFloat(percentageText);
-            if (isNaN(percentage)) return;
+    const observer = new MutationObserver(function () {
+        const percentageText = span.innerText.replace('%', '').trim();
+        const percentage = parseFloat(percentageText);
+        if (isNaN(percentage)) return;
 
-            FinalScore = percentage;
-            observer.disconnect();
+        FinalScore = percentage;
+        observer.disconnect();
 
-            const options = (value, labelText, colorStart, colorEnd) => ({
-                series: [value],
-                chart: { height: 400, type: 'radialBar' },
-                plotOptions: {
-                    radialBar: {
-                        hollow: { size: '60%' },
-                        dataLabels: {
-                            name: { show: true, offsetY: -10, color: '#666', fontSize: '16px' },
-                            value: { show: true, fontSize: '32px', fontWeight: 600, color: '#111', offsetY: 8, formatter: val => val + '%' }
-                        }
+        const options = (value, labelText, colorStart, colorEnd) => ({
+            series: [value],
+            chart: { height: 400, type: 'radialBar' },
+            plotOptions: {
+                radialBar: {
+                    hollow: { size: '60%' },
+                    dataLabels: {
+                        name: { show: true, offsetY: -10, color: '#666', fontSize: '16px' },
+                        value: { show: true, fontSize: '32px', fontWeight: 600, color: '#111', offsetY: 8, formatter: val => val + '%' }
                     }
+                }
+            },
+            labels: [labelText],
+            colors: [colorStart],
+            fill: {
+                type: 'gradient',
+                gradient: { shade: 'light', type: 'diagonal', gradientToColors: [colorEnd], stops: [0, 100], opacityFrom: 1, opacityTo: 1, angle: 145 }
+            }
+        });
+
+        if (chartContainer) {
+            new ApexCharts(chartContainer, options(FinalScore, 'Tu Puntaje', '#d29d01', '#ffd000')).render();
+        }
+
+        if (chartContainerPromedio) {
+            if (isFinalQuiz) {
+                new ApexCharts(chartContainerPromedio, options(FirstScore, 'First Score', '#d29d01', '#ffd000')).render();
+            } else {
+                new ApexCharts(chartContainerPromedio, options(polisAverageInitialPHP, 'Promedio Polis', '#d29d01', '#ffd000')).render();
+            }
+        }
+
+        const scoreDiv = document.getElementById("score");
+        if (scoreDiv && isFinalQuiz) {
+            const progreso = FinalScore - FirstScore;
+            let mensajeHTML = '';
+
+            if (progreso > 0) {
+                mensajeHTML = `
+                    <h2 style="text-align: center; color: #000;">Congratulations on your progress!</h2>
+                    <p style="font-weight: normal; color: #333; text-align: center;">
+                        You improved your score by <strong style="color: #4CAF50;">+${progreso} points</strong>. Great job!
+                    </p>
+                `;
+            } else if (progreso === 0) {
+                mensajeHTML = `
+                    <h2 style="text-align: center; color: #000;">Congratulations on completing the course!</h2>
+                    <p style="font-weight: normal; color: #333; text-align: center;">
+                        Your knowledge has been reinforced. Your progress was <strong>${progreso} points</strong>.
+                    </p>
+                `;
+            } else {
+                mensajeHTML = `
+                    <h2 style="text-align: center; color: #000;">Keep going – you're not alone!</h2>
+                    <p style="font-weight: normal; color: #333; text-align: center;">
+                        Your score changed by <strong style="color: #D32F2F;">${progreso} points</strong>.
+                        This is uncommon, but nothing to worry about. You can review the lessons and take the Final Quiz again in 10 days.
+                    </p>
+                `;
+            }
+
+            scoreDiv.innerHTML = mensajeHTML;
+        }
+
+        // --- JavaScript Polling for Datos del Intento ---
+        let pollInterval;
+        let currentChartPromedioInstance;
+        let pollAttempts = 0;
+        const MAX_POLL_ATTEMPTS = 10;
+
+        const fetchDatosDelIntento = () => {
+            pollAttempts++;
+
+            jQuery.ajax({
+                url: ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'get_latest_quiz_activity',
+                    quiz_id: currentQuizId
                 },
-                labels: [labelText],
-                colors: [colorStart],
-                fill: {
-                    type: 'gradient',
-                    gradient: { shade: 'light', type: 'diagonal', gradientToColors: [colorEnd], stops: [0, 100], opacityFrom: 1, opacityTo: 1, angle: 145 }
-                }
-            });
+                success: function(response) {
+                    let shouldStopPolling = false;
 
-            if (chartContainer) {
-                new ApexCharts(chartContainer, options(FinalScore, 'Tu Puntaje', '#d29d01', '#ffd000')).render();
-            }
+                    if (response.success && response.data) {
+                        const latestActivityDetails = response.data.latest_activity_details;
+                        const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages;
 
-            if (chartContainerPromedio) {
-                if (isFinalQuiz) {
-                    new ApexCharts(chartContainerPromedio, options(FirstScore, 'First Score', '#d29d01', '#ffd000')).render();
-                } else {
-                    new ApexCharts(chartContainerPromedio, options(polisAverageInitialPHP, 'Promedio Polis', '#d29d01', '#ffd000')).render();
-                }
-            }
+                        console.log('AJAX SUCCESS - Poll Attempt:', pollAttempts);
+                        console.log('  allAttemptsPercentagesFromAjax:', allAttemptsPercentagesFromAjax);
 
-            const scoreDiv = document.getElementById("score");
-            if (scoreDiv && isFinalQuiz) {
-                const progreso = FinalScore - FirstScore;
-                let mensajeHTML = '';
+                        // Solo en First Quiz se actualiza Promedio Polis con AJAX
+                        if (!isFinalQuiz && chartContainerPromedio && allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
+                            let totalSum = 0;
+                            let totalCount = 0;
+                            allAttemptsPercentagesFromAjax.forEach(attempt => {
+                                totalSum += attempt.percentage;
+                                totalCount++;
+                            });
 
-                if (progreso > 0) {
-                    mensajeHTML = `
-                        <h2 style="text-align: center; color: #000;">Congratulations on your progress!</h2>
-                        <p style="font-weight: normal; color: #333; text-align: center;">
-                            You improved your score by <strong style="color: #4CAF50;">+${progreso} points</strong>. Great job!
-                        </p>
-                    `;
-                } else if (progreso === 0) {
-                    mensajeHTML = `
-                        <h2 style="text-align: center; color: #000;">Congratulations on completing the course!</h2>
-                        <p style="font-weight: normal; color: #333; text-align: center;">
-                            Your knowledge has been reinforced. Your progress was <strong>${progreso} points</strong>.
-                        </p>
-                    `;
-                } else {
-                    mensajeHTML = `
-                        <h2 style="text-align: center; color: #000;">Keep going – you're not alone!</h2>
-                        <p style="font-weight: normal; color: #333; text-align: center;">
-                            Your score changed by <strong style="color: #D32F2F;">${progreso} points</strong>.
-                            This is uncommon, but nothing to worry about. You can review the lessons and take the Final Quiz again in 10 days.
-                        </p>
-                    `;
-                }
-
-                scoreDiv.innerHTML = mensajeHTML;
-            }
-
-            // --- JavaScript Polling for Datos del Intento ---
-            let pollInterval;
-            let currentChartPromedioInstance;
-            let pollAttempts = 0;
-            const MAX_POLL_ATTEMPTS = 10;
-
-            const fetchDatosDelIntento = () => {
-                pollAttempts++;
-                
-                jQuery.ajax({
-                    url: ajaxUrl,
-                    type: 'POST',
-                    data: {
-                        action: 'get_latest_quiz_activity',
-                        quiz_id: currentQuizId
-                    },
-                    success: function(response) {
-                        let shouldStopPolling = false;
-
-                        if (response.success && response.data) {
-                            const latestActivityDetails = response.data.latest_activity_details;
-                            const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages;
-
-                            // --- MÁS LOGS AÑADIDOS AQUÍ ---
-                            console.log('AJAX SUCCESS - Poll Attempt:', pollAttempts);
-                            console.log('  allAttemptsPercentagesFromAjax:', allAttemptsPercentagesFromAjax);
-
-                            if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
-                                let totalSum = 0;
-                                let totalCount = 0;
-                                allAttemptsPercentagesFromAjax.forEach(attempt => {
-                                    totalSum += attempt.percentage;
-                                    totalCount++;
-                                });
-
-                                let newPolisAverage = 0;
-                                if (totalCount > 0) {
-                                    newPolisAverage = Math.round(totalSum / totalCount);
-                                }
-                                console.log('  Calculated totalSum:', totalSum, 'totalCount:', totalCount, 'newPolisAverage:', newPolisAverage);
-
-                                if (chartContainerPromedio) {
-                                    if (!currentChartPromedioInstance) {
-                                        currentChartPromedioInstance = new ApexCharts(chartContainerPromedio, options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
-                                        currentChartPromedioInstance.render();
-                                    } else {
-                                        currentChartPromedioInstance.updateOptions(options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
-                                    }
-                                }
-                            } else {
-                                console.log('  allAttemptsPercentagesFromAjax is empty or null.');
+                            let newPolisAverage = 0;
+                            if (totalCount > 0) {
+                                newPolisAverage = Math.round(totalSum / totalCount);
                             }
 
-                            if (latestActivityDetails && latestActivityDetails.score_data) {
-                                console.log('  latestActivityDetails IS present:', latestActivityDetails);
-                                const scoreData = latestActivityDetails.score_data;
-                                const html = `
-                                    <div style="margin: 30px auto; max-width: 600px; padding: 20px; border: 1px dashed #ccc; font-size: 15px;">
-                                        <h4 style="margin-bottom: 10px;">🧪 Datos del Intento (ACTUAL LAST)</h4>
-                                        <p><strong>Activity ID:</strong> ${latestActivityDetails.activity_id}</p>
-                                        <p><strong>Inicio:</strong> ${latestActivityDetails.started}</p>
-                                        <p><strong>Término:</strong> ${latestActivityDetails.completed}</p>
-                                        <p><strong>Duración:</strong> ${latestActivityDetails.duration} segundos</p>
-                                        <hr style="border-top: 1px dashed #eee; margin: 15px 0;">
-                                        <p><strong>Puntaje:</strong> ${scoreData.score} de ${scoreData.total_points}</p>
-                                        <p><strong>Porcentaje:</strong> ${scoreData.percentage}%</p>
-                                        <p><strong>Estado:</strong> ${scoreData.passed ? 'Aprobado' : 'Reprobado'}</p>
-                                    </div>
-                                `;
-                                datosDelIntentoContainer.innerHTML = html;
-                                shouldStopPolling = true;
-                            } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                                console.log('  latestActivityDetails NOT present after MAX_POLL_ATTEMPTS. Stopping polling.');
-                                datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Detalles del último intento no disponibles aún. Por favor, recarga la página o inténtalo más tarde.</p>`;
-                                shouldStopPolling = true;
+                            console.log('  Calculated totalSum:', totalSum, 'totalCount:', totalCount, 'newPolisAverage:', newPolisAverage);
+
+                            if (!currentChartPromedioInstance) {
+                                currentChartPromedioInstance = new ApexCharts(chartContainerPromedio, options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
+                                currentChartPromedioInstance.render();
                             } else {
-                                console.log('  latestActivityDetails NOT present yet. Continuing polling.');
-                                let loadingMessage = `Cargando detalles del último intento (intento ${pollAttempts}/${MAX_POLL_ATTEMPTS})...`;
-                                if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
-                                     loadingMessage += ` Promedio Polis global actualizado.`;
-                                }
-                                datosDelIntentoContainer.innerHTML = `<p style="text-align:center; color:#555;">${loadingMessage}</p>`;
+                                currentChartPromedioInstance.updateOptions(options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
                             }
+                        }
+
+                        if (latestActivityDetails && latestActivityDetails.score_data) {
+                            console.log('  latestActivityDetails IS present:', latestActivityDetails);
+                            const scoreData = latestActivityDetails.score_data;
+                            const html = `
+                                <div style="margin: 30px auto; max-width: 600px; padding: 20px; border: 1px dashed #ccc; font-size: 15px;">
+                                    <h4 style="margin-bottom: 10px;">🧪 Datos del Intento (ACTUAL LAST)</h4>
+                                    <p><strong>Activity ID:</strong> ${latestActivityDetails.activity_id}</p>
+                                    <p><strong>Inicio:</strong> ${latestActivityDetails.started}</p>
+                                    <p><strong>Término:</strong> ${latestActivityDetails.completed}</p>
+                                    <p><strong>Duración:</strong> ${latestActivityDetails.duration} segundos</p>
+                                    <hr style="border-top: 1px dashed #eee; margin: 15px 0;">
+                                    <p><strong>Puntaje:</strong> ${scoreData.score} de ${scoreData.total_points}</p>
+                                    <p><strong>Porcentaje:</strong> ${scoreData.percentage}%</p>
+                                    <p><strong>Estado:</strong> ${scoreData.passed ? 'Aprobado' : 'Reprobado'}</p>
+                                </div>
+                            `;
+                            datosDelIntentoContainer.innerHTML = html;
+                            shouldStopPolling = true;
+                        } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                            console.log('  latestActivityDetails NOT present after MAX_POLL_ATTEMPTS. Stopping polling.');
+                            datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Detalles del último intento no disponibles aún. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                            shouldStopPolling = true;
                         } else {
-                            console.log('AJAX SUCCESS but response.success is false or no response.data.');
-                            if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                                datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.</p>`;
-                                shouldStopPolling = true;
-                            } else {
-                                datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
+                            console.log('  latestActivityDetails NOT present yet. Continuing polling.');
+                            let loadingMessage = `Cargando detalles del último intento (intento ${pollAttempts}/${MAX_POLL_ATTEMPTS})...`;
+                            if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
+                                 loadingMessage += ` Promedio Polis global actualizado.`;
                             }
+                            datosDelIntentoContainer.innerHTML = `<p style="text-align:center; color:#555;">${loadingMessage}</p>`;
                         }
-
-                        if (shouldStopPolling) {
-                            console.log('Stopping poll interval.');
-                            clearInterval(pollInterval);
-                        }
-                    },
-                    error: function(jqXHR, textStatus, errorThrown) {
-                        console.error("AJAX Error:", textStatus, errorThrown, jqXHR.responseText);
+                    } else {
+                        console.log('AJAX SUCCESS but response.success is false or no response.data.');
                         if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                            datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo de comunicación con el servidor. Por favor, recarga la página o inténtalo más tarde.</p>`;
-                            clearInterval(pollInterval);
+                            datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                            shouldStopPolling = true;
                         } else {
                             datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
                         }
                     }
-                });
-            };
 
-            pollInterval = setInterval(fetchDatosDelIntento, 1000); 
-            fetchDatosDelIntento();
-        });
+                    if (shouldStopPolling) {
+                        console.log('Stopping poll interval.');
+                        clearInterval(pollInterval);
+                    }
+                },
+                error: function(jqXHR, textStatus, errorThrown) {
+                    console.error("AJAX Error:", textStatus, errorThrown, jqXHR.responseText);
+                    if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                        datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo de comunicación con el servidor. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                        clearInterval(pollInterval);
+                    } else {
+                        datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
+                    }
+                }
+            });
+        };
 
-        observer.observe(span, { childList: true, characterData: true, subtree: true });
+        pollInterval = setInterval(fetchDatosDelIntento, 1000); 
+        fetchDatosDelIntento();
     });
-    </script>
+
+    observer.observe(span, { childList: true, characterData: true, subtree: true });
+});
+</script>
+
 </div>
