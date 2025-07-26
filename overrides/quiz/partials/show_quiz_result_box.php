@@ -415,12 +415,10 @@ if ( $quiz_id ) {
                 }
             });
 
-            // Initial chart renders for "Tu Puntaje"
             if (chartContainer) {
                 new ApexCharts(chartContainer, options(FinalScore, 'Tu Puntaje', '#d29d01', '#ffd000')).render();
             }
 
-            // Initial Promedio Polis chart render
             if (chartContainerPromedio) {
                 if (isFinalQuiz) {
                     new ApexCharts(chartContainerPromedio, options(FirstScore, 'First Score', '#d29d01', '#ffd000')).render();
@@ -428,7 +426,6 @@ if ( $quiz_id ) {
                     new ApexCharts(chartContainerPromedio, options(polisAverageInitialPHP, 'Promedio Polis', '#d29d01', '#ffd000')).render();
                 }
             }
-
 
             const scoreDiv = document.getElementById("score");
             if (scoreDiv && isFinalQuiz) {
@@ -462,111 +459,116 @@ if ( $quiz_id ) {
                 scoreDiv.innerHTML = mensajeHTML;
             }
 
-            // --- JavaScript Polling for Datos del Intento and Promedio Polis ---
+            // --- JavaScript Polling for Datos del Intento ---
             let pollInterval;
-            let currentChartPromedioInstance; // To store the ApexCharts object for Promedio Polis
-            let pollAttempts = 0; // NEW: Counter for polling attempts
-            const MAX_POLL_ATTEMPTS = 10; // NEW: Max attempts before showing fallback message (e.g., 10 seconds)
+            let currentChartPromedioInstance;
+            let pollAttempts = 0;
+            const MAX_POLL_ATTEMPTS = 10;
 
             const fetchDatosDelIntento = () => {
-    pollAttempts++; // Increment counter
+                pollAttempts++;
+                
+                jQuery.ajax({
+                    url: ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'get_latest_quiz_activity',
+                        quiz_id: currentQuizId
+                    },
+                    success: function(response) {
+                        let shouldStopPolling = false;
 
-    jQuery.ajax({
-        url: ajaxUrl,
-        type: 'POST',
-        data: {
-            action: 'get_latest_quiz_activity',
-            quiz_id: currentQuizId
-        },
-        success: function(response) {
-            let shouldStopPolling = false; // Flag to decide if polling should stop
+                        if (response.success && response.data) {
+                            const latestActivityDetails = response.data.latest_activity_details;
+                            const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages;
 
-            if (response.success && response.data) {
-                const latestActivityDetails = response.data.latest_activity_details; // User-specific latest
-                const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages; // Global list
+                            // --- MÁS LOGS AÑADIDOS AQUÍ ---
+                            console.log('AJAX SUCCESS - Poll Attempt:', pollAttempts);
+                            console.log('  allAttemptsPercentagesFromAjax:', allAttemptsPercentagesFromAjax);
 
-                // --- Update Promedio Polis Chart (always try to update if global data is present) ---
-                if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
-                    let totalSum = 0;
-                    let totalCount = 0;
-                    allAttemptsPercentagesFromAjax.forEach(attempt => {
-                        totalSum += attempt.percentage;
-                        totalCount++;
-                    });
+                            if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
+                                let totalSum = 0;
+                                let totalCount = 0;
+                                allAttemptsPercentagesFromAjax.forEach(attempt => {
+                                    totalSum += attempt.percentage;
+                                    totalCount++;
+                                });
 
-                    let newPolisAverage = 0;
-                    if (totalCount > 0) {
-                        newPolisAverage = Math.round(totalSum / totalCount);
-                    }
+                                let newPolisAverage = 0;
+                                if (totalCount > 0) {
+                                    newPolisAverage = Math.round(totalSum / totalCount);
+                                }
+                                console.log('  Calculated totalSum:', totalSum, 'totalCount:', totalCount, 'newPolisAverage:', newPolisAverage);
 
-                    if (chartContainerPromedio) {
-                        // Check if currentChartPromedioInstance already exists, if not, create it once.
-                        // If it exists, use .updateOptions to prevent re-rendering from scratch.
-                        if (!currentChartPromedioInstance) {
-                            currentChartPromedioInstance = new ApexCharts(chartContainerPromedio, options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
-                            currentChartPromedioInstance.render();
+                                if (chartContainerPromedio) {
+                                    if (!currentChartPromedioInstance) {
+                                        currentChartPromedioInstance = new ApexCharts(chartContainerPromedio, options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
+                                        currentChartPromedioInstance.render();
+                                    } else {
+                                        currentChartPromedioInstance.updateOptions(options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
+                                    }
+                                }
+                            } else {
+                                console.log('  allAttemptsPercentagesFromAjax is empty or null.');
+                            }
+
+                            if (latestActivityDetails && latestActivityDetails.score_data) {
+                                console.log('  latestActivityDetails IS present:', latestActivityDetails);
+                                const scoreData = latestActivityDetails.score_data;
+                                const html = `
+                                    <div style="margin: 30px auto; max-width: 600px; padding: 20px; border: 1px dashed #ccc; font-size: 15px;">
+                                        <h4 style="margin-bottom: 10px;">🧪 Datos del Intento (ACTUAL LAST)</h4>
+                                        <p><strong>Activity ID:</strong> ${latestActivityDetails.activity_id}</p>
+                                        <p><strong>Inicio:</strong> ${latestActivityDetails.started}</p>
+                                        <p><strong>Término:</strong> ${latestActivityDetails.completed}</p>
+                                        <p><strong>Duración:</strong> ${latestActivityDetails.duration} segundos</p>
+                                        <hr style="border-top: 1px dashed #eee; margin: 15px 0;">
+                                        <p><strong>Puntaje:</strong> ${scoreData.score} de ${scoreData.total_points}</p>
+                                        <p><strong>Porcentaje:</strong> ${scoreData.percentage}%</p>
+                                        <p><strong>Estado:</strong> ${scoreData.passed ? 'Aprobado' : 'Reprobado'}</p>
+                                    </div>
+                                `;
+                                datosDelIntentoContainer.innerHTML = html;
+                                shouldStopPolling = true;
+                            } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                                console.log('  latestActivityDetails NOT present after MAX_POLL_ATTEMPTS. Stopping polling.');
+                                datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Detalles del último intento no disponibles aún. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                                shouldStopPolling = true;
+                            } else {
+                                console.log('  latestActivityDetails NOT present yet. Continuing polling.');
+                                let loadingMessage = `Cargando detalles del último intento (intento ${pollAttempts}/${MAX_POLL_ATTEMPTS})...`;
+                                if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
+                                     loadingMessage += ` Promedio Polis global actualizado.`;
+                                }
+                                datosDelIntentoContainer.innerHTML = `<p style="text-align:center; color:#555;">${loadingMessage}</p>`;
+                            }
                         } else {
-                            currentChartPromedioInstance.updateOptions(options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
+                            console.log('AJAX SUCCESS but response.success is false or no response.data.');
+                            if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                                datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                                shouldStopPolling = true;
+                            } else {
+                                datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
+                            }
+                        }
+
+                        if (shouldStopPolling) {
+                            console.log('Stopping poll interval.');
+                            clearInterval(pollInterval);
+                        }
+                    },
+                    error: function(jqXHR, textStatus, errorThrown) {
+                        console.error("AJAX Error:", textStatus, errorThrown, jqXHR.responseText);
+                        if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                            datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo de comunicación con el servidor. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                            clearInterval(pollInterval);
+                        } else {
+                            datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
                         }
                     }
-                }
+                });
+            };
 
-                // --- Update Datos del Intento (user-specific, only if complete data is ready) ---
-                if (latestActivityDetails && latestActivityDetails.score_data) {
-                    const scoreData = latestActivityDetails.score_data;
-                    const html = `
-                        <div style="margin: 30px auto; max-width: 600px; padding: 20px; border: 1px dashed #ccc; font-size: 15px;">
-                            <h4 style="margin-bottom: 10px;">🧪 Datos del Intento (ACTUAL LAST)</h4>
-                            <p><strong>Activity ID:</strong> ${latestActivityDetails.activity_id}</p>
-                            <p><strong>Inicio:</strong> ${latestActivityDetails.started}</p>
-                            <p><strong>Término:</strong> ${latestActivityDetails.completed}</p>
-                            <p><strong>Duración:</strong> ${latestActivityDetails.duration} segundos</p>
-                            <hr style="border-top: 1px dashed #eee; margin: 15px 0;">
-                            <p><strong>Puntaje:</strong> ${scoreData.score} de ${scoreData.total_points}</p>
-                            <p><strong>Porcentaje:</strong> ${scoreData.percentage}%</p>
-                            <p><strong>Estado:</strong> ${scoreData.passed ? 'Aprobado' : 'Reprobado'}</p>
-                        </div>
-                    `;
-                    datosDelIntentoContainer.innerHTML = html;
-                    shouldStopPolling = true; // Data successfully displayed, stop polling
-                } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                    datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Detalles del último intento no disponibles aún. Por favor, recarga la página o inténtalo más tarde.</p>`;
-                    shouldStopPolling = true; // Max attempts reached, stop polling
-                } else {
-                    // Keep showing loading message if user-specific data not yet ready and not max attempts
-                    // And indicate if global average updated (if allAttemptsPercentagesFromAjax was valid)
-                    let loadingMessage = `Cargando detalles del último intento (intento ${pollAttempts}/${MAX_POLL_ATTEMPTS})...`;
-                    if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
-                         loadingMessage += ` Promedio Polis global actualizado.`;
-                    }
-                    datosDelIntentoContainer.innerHTML = `<p style="text-align:center; color:#555;">${loadingMessage}</p>`;
-                }
-            } else { // AJAX response success=false or data is null
-                if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                    datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.</p>`;
-                    shouldStopPolling = true; // Max attempts reached, stop polling
-                } else {
-                    datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
-                }
-            }
-
-            if (shouldStopPolling) {
-                clearInterval(pollInterval); // Stop polling
-            }
-        },
-        error: function(jqXHR, textStatus, errorThrown) {
-            console.error("AJAX Error:", textStatus, errorThrown, jqXHR.responseText);
-            if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo de comunicación con el servidor. Por favor, recarga la página o inténtalo más tarde.</p>`;
-                clearInterval(pollInterval); // Stop polling
-            } else {
-                datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
-            }
-        }
-    });
-};
-
-            // Initial call to start polling
             pollInterval = setInterval(fetchDatosDelIntento, 1000); 
             fetchDatosDelIntento();
         });

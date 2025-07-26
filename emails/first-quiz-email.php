@@ -7,161 +7,202 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-/**
- * Generates a QuickChart URL for a doughnut chart.
- *
- * @param int $value The percentage value to display.
- * @return string   The URL for the chart image.
- */
 function politeia_generate_quickchart_url( $value ) {
     $config = [
-        'type'    => 'doughnut',
-        'data'    => [
+        'type' => 'doughnut',
+        'data' => [
             'datasets' => [[
-                'data'            => [ $value, 100 - $value ],
+                'data' => [ $value, 100 - $value ],
                 'backgroundColor' => ['#f9c600', '#eeeeee'],
-                'borderWidth'     => 0,
-            ]],
+                'borderWidth' => 0
+            ]]
         ],
         'options' => [
-            'cutout'  => '10%',
+            'cutout' => '10%',
             'plugins' => [
-                'legend'        => [ 'display' => false ],
-                'tooltip'       => [ 'enabled' => false ],
-                'datalabels'    => [ 'display' => false ],
+                'legend' => [ 'display' => false ],
+                'tooltip' => [ 'enabled' => false ],
+                'datalabels' => [ 'display' => false ],
                 'doughnutlabel' => [
                     'labels' => [[
                         'text' => $value . '%',
                         'font' => [
-                            'size'   => 24,
-                            'weight' => 'bold',
+                            'size' => 24,
+                            'weight' => 'bold'
                         ],
-                        'color' => '#333',
-                    ]],
-                ],
-            ],
+                        'color' => '#333'
+                    ]]
+                ]
+            ]
         ],
-        'plugins' => ['doughnutlabel'],
+        'plugins' => ['doughnutlabel']
     ];
 
-    return 'https://quickchart.io/chart?c=' . urlencode( wp_json_encode( $config ) );
+    return 'https://quickchart.io/chart?c=' . urlencode( json_encode( $config ) );
 }
 
-/**
- * Builds the subject and HTML body for the first quiz notification email.
- *
- * @param array $quiz_data Data about the quiz (must include ['quiz'] => quiz ID).
- * @param array $user      User data (must include ['ID']).
- * @return array           ['subject' => string, 'body' => string]
- */
 function pqc_get_first_quiz_email_content( $quiz_data, $user ) {
     global $wpdb;
 
-    // --- Debug data (quiz title, user name) ---
+    // Ensure Polis_Quiz_Attempts_Shortcode class is loaded if not already
+    // This is crucial because we need its static property.
+    if ( ! class_exists( 'Polis_Quiz_Attempts_Shortcode' ) ) {
+        // Assuming your plugin structure for this class:
+        // You might need to adjust this path if Polis_Quiz_Attempts_Shortcode is elsewhere.
+        // Example path if it's in a 'classes' or 'includes' folder relative to your email template:
+        if ( file_exists( plugin_dir_path( __FILE__ ) . 'polis-average-quiz-result.php' ) ) {
+            include_once plugin_dir_path( __FILE__ ) . 'polis-average-quiz-result.php';
+        }
+        // If it's in includes/polis-average-quiz-result.php from the plugin root:
+        // include_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/polis-average-quiz-result.php';
+    }
+
+    // CRITICAL: Call the shortcode's render method to ensure $last_average is populated
+    // We call it here and capture the output to discard it, but the side effect is setting $last_average.
+    ob_start();
+    do_shortcode('[polis_quiz_attempts id="' . (isset( $quiz_data['quiz'] ) ? intval( $quiz_data['quiz'] ) : 0) . '"]');
+    ob_end_clean(); // Discard the HTML output from the shortcode
+
     $debug_data = pqc_get_quiz_debug_data( $quiz_data, $user );
     $subject    = '✔️ New Quiz Completed: ' . $debug_data['quiz_title'];
 
-    // Logo
-    $svg_url = content_url( 'Uploads/2025/06/LogoNewBlackPoliteia.svg' );
+    $svg_url = content_url( 'uploads/2025/06/LogoNewBlackPoliteia.svg' );
 
-    // --- 1) Puntaje del usuario ---
     $raw_score  = isset( $debug_data['first_quiz_attempt'] ) ? $debug_data['first_quiz_attempt'] : '0';
-    $user_score = (int) preg_replace( '/\D/', '', $raw_score );
+    $user_score = (int) preg_replace( '/[^0-9]/', '', $raw_score );
     $user_score = min( 100, max( 0, $user_score ) );
 
-    // --- 2) Promedio vía shortcode (almacena en $GLOBALS['polis_quiz_last_average']) ---
-    // Ejecutamos el shortcode para que calcule y guarde el promedio
-    do_shortcode( '[polis_quiz_attempts id="' . intval( $quiz_data['quiz'] ) . '"]' );
-    $avg_score = isset( $GLOBALS['polis_quiz_last_average'] )
-        ? intval( $GLOBALS['polis_quiz_last_average'] )
-        : 0;
+    // --- CAMBIO CLAVE AQUÍ: Obtener el promedio de la clase del shortcode ---
+    $avg_score = class_exists('Polis_Quiz_Attempts_Shortcode') ? Polis_Quiz_Attempts_Shortcode::$last_average : 0;
+    // Asegurarse de que sea un número válido y dentro del rango
+    $avg_score = min( 100, max( 0, intval($avg_score) ) );
 
-    // --- 3) Generar URLs de los gráficos ---
-    $chart_url_user = politeia_generate_quickchart_url( $user_score );
-    $chart_url_avg  = politeia_generate_quickchart_url( $avg_score );
 
-    // --- 4) Curso y URLs ---
-    $quiz_id        = isset( $quiz_data['quiz'] ) ? intval( $quiz_data['quiz'] ) : 0;
-    $course_id      = $wpdb->get_var( $wpdb->prepare(
-        "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_first_quiz_id' AND meta_value = %d LIMIT 1",
-        $quiz_id
-    ) );
-    $course_title   = get_the_title( $course_id );
-    $course_url     = $course_id ? get_permalink( $course_id ) : home_url();
+    $chart_url_user  = politeia_generate_quickchart_url( $user_score );
+    $chart_url_avg   = politeia_generate_quickchart_url( $avg_score );
+    $quiz_id         = isset( $quiz_data['quiz'] ) ? intval( $quiz_data['quiz'] ) : 0;
+
+    $course_id = $wpdb->get_var( $wpdb->prepare( "
+        SELECT post_id
+        FROM {$wpdb->postmeta}
+        WHERE meta_key = '_first_quiz_id'
+          AND meta_value = %d
+        LIMIT 1
+    ", $quiz_id ) );
+
+    $course_title = get_the_title( $course_id );
+    $course_url   = $course_id ? get_permalink( $course_id ) : home_url();
     $login_redirect = wp_login_url( $course_url );
 
-    // Fecha de completado
-    $completion_date               = date_i18n( get_option( 'date_format' ), current_time( 'timestamp' ) );
+    $completion_date = date_i18n(
+        get_option( 'date_format' ),
+        current_time( 'timestamp' )
+    );
+
     $debug_data['completion_date'] = $completion_date;
 
-    // Producto relacionado
-	$product_id = 0;
-	if ( $course_id ) {
-		if ( ! class_exists( 'PoliteiaCourse' ) && file_exists( plugin_dir_path( __FILE__ ) . '../includes/class-politeia-quiz-stats.php' ) ) {
-			include_once plugin_dir_path( __FILE__ ) . '../includes/class-politeia-quiz-stats.php';
-		}
-		if ( class_exists( 'PoliteiaCourse' ) ) {
-			$course_obj = new PoliteiaCourse( $course_id );
-			$product_id = $course_obj->getRelatedProductId();
-		}
-	}
-	$checkout_url    = $product_id ? wc_get_checkout_url() : '#';
-	$add_to_cart_url = $product_id ? add_query_arg( 'add-to-cart', $product_id, $checkout_url ) : '#';
-
-    // ¿Curso gratuito?
-    $access_type    = function_exists( 'learndash_get_setting' )
-        ? learndash_get_setting( $course_id, 'course_price_type' )
-        : '';
-    $is_free_course = ( $access_type === 'free' );
-
-    // --- 5) Construcción del HTML ---
-    $body  = '<div style="background:#f8f8f8;padding:30px 0;font-family:sans-serif;">';
-    $body .= '<style>
-        body, p, h2, h3, a { font-family: sans-serif !important; }
-        @media only screen and (max-width:600px){
-            .hide-on-mobile{display:none!important;}
-            #your-score-pie,#polis-score-pie{margin-bottom:40px!important;}
+    $product_id = 0;
+    if ( $course_id ) {
+        if ( ! class_exists( 'PoliteiaCourse' ) && file_exists( plugin_dir_path( __FILE__ ) . '../classes/class-politeia-course.php' ) ) {
+            include_once plugin_dir_path( __FILE__ ) . '../classes/class-politeia-course.php';
         }
-    </style>';
-
-    $body .= '<div style="background:white;padding:30px 0px;text-align:center;max-width:700px;margin:auto;border-radius:6px;border:1px solid #d5d5d5;font-family:sans-serif;">';
-    $body .= '<img src="' . esc_url( $svg_url ) . '" alt="Politeia Logo" style="max-width:200px;margin-bottom:20px;">';
-    $body .= '<hr>';
-    $body .= '<div id="quiz-completion-info" style="font-family:sans-serif; padding: 20px 40px 20px;">';
-    $body .= '<p style="font-size:12px;font-family:sans-serif;">Completion date: <strong>' . esc_html( $completion_date ) . '</strong>.</p>';
-    $body .= '<h2 style="font-size:22px;color:#333;margin-bottom:10px;font-family:sans-serif;">🎉 Congratulations ' . esc_html( $debug_data['user_display_name'] ) . '!</h2>';
-    $body .= '<p style="font-family:sans-serif;">You have completed the quiz <strong>' . esc_html( $debug_data['quiz_title'] ) . '</strong>, part of the course <strong>' . esc_html( $course_title ) . '</strong>.</p>';
-    $body .= '<p style="font-family:sans-serif;">Here are the statistics:</p>';
-    $body .= '</div>';
-    $body .= '<hr style="margin:20px 0px 0px 0px;">';
-
-    $body .= '<div style="display:flex;justify-content:space-evenly;flex-wrap:wrap;align-items:center;font-family:sans-serif;">';
-
-    // Your Score
-    $body .= '<div id="your-score-pie" style="max-width:300px;text-align:center;font-family:sans-serif;">';
-    $body .= '<h3 style="margin-bottom:10px;color:#333;font-family:sans-serif;">Your Score</h3>';
-    $body .= '<img src="' . esc_url( $chart_url_user ) . '" alt="Your Score" style="width:100%;height:auto;">';
-    $body .= '</div>';
-
-    // Divider
-    $body .= '<div class="hide-on-mobile" style="width:1px;height:300px;background:#ccc;"></div>';
-
-    // Polis Average
-    $body .= '<div id="polis-score-pie" style="max-width:300px;text-align:center;font-family:sans-serif;">';
-    $body .= '<h3 style="margin-bottom:10px;color:#333;font-family:sans-serif;">Polis Average</h3>';
-    $body .= '<img src="' . esc_url( $chart_url_avg ) . '" alt="Polis Average" style="width:100%;height:auto;">';
-    $body .= '</div>';
-
-    $body .= '</div><hr style="margin:0px 0px 40px 0px;">';
-
-    // CTA
-    if ( $is_free_course || ( $product_id && pqc_user_has_bought_course( $user['ID'], $product_id ) ) ) {
-        $body .= '<p style="text-align:center;font-family:sans-serif;"><a href="' . esc_url( $login_redirect ) . '" style="background:#000;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;font-family:sans-serif;">Go to Course</a></p>';
-    } else {
-        $body .= '<p style="text-align:center;font-family:sans-serif;"><a href="' . esc_url( $add_to_cart_url ) . '" style="background:#000;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;font-family:sans-serif;">Buy Course</a></p>';
+        if ( class_exists( 'PoliteiaCourse' ) ) {
+            $course_object = new PoliteiaCourse( $course_id );
+            $product_id    = $course_object->getRelatedProductId();
+        }
     }
 
-    $body .= '<p style="text-align:center;margin-top:30px;font-family:sans-serif;">We hope you learn and have fun on this educational journey!</p>';
+    $checkout_url    = $product_id ? wc_get_checkout_url() : '#';
+    $add_to_cart_url = $product_id ? add_query_arg( 'add-to-cart', $product_id, $checkout_url ) : '#';
+
+    // Detectar si el curso es FREE usando LearnDash API
+    $access_type = function_exists( 'learndash_get_setting' ) ? learndash_get_setting( $course_id, 'course_price_type' ) : '';
+    $is_free_course = ( $access_type === 'free' );
+
+    // Inicia cuerpo del correo
+    $body  = '<div style="background-color: #f8f8f8; padding: 30px 0;">';
+
+    $body .= '<style>
+    @media only screen and (max-width: 600px) {
+        .hide-on-mobile { display: none !important; }
+        #your-score-pie, #polis-score-pie { margin-bottom: 40px !important; }
+    }
+    </style>';
+
+    $body .= '<div id="content-top-email" style="background: white; padding: 30px 0px; text-align: center; max-width: 700px; margin: auto; border-radius: 6px; border: 1px solid #d5d5d5;">';
+    $body .= '<img src="' . esc_url( $svg_url ) . '" alt="Quiz Header" style="max-width: 200px; height: auto; margin-bottom: 20px;">';
+    $body .= '<hr style="margin: 0px auto;">';
+
+    $body .= '<div style="text-align: center; font-family: sans-serif; padding: 20px 50px 0px 50px;">';
+    $body .= '<p style="font-size:12px;">Completion date: <strong>' . esc_html( $completion_date ) . '</strong>.</p>';
+    $body .= '<h2 style="color: #333333; font-size: 22px; margin-bottom: 10px; padding: 0px 30px;">🎉 Congratulations ' . esc_html( $debug_data['user_display_name'] ) . '!</h2>';
+    $body .= '<p>You have completed the quiz <strong>' . esc_html( $debug_data['quiz_title'] ) . '</strong>,<br> part of the course <strong>' . esc_html( $debug_data['course_title'] ) . '</strong>.</p>';
+    $body .= '<p>Here are the statistics:</p>';
+    $body .= '</div>';
+    $body .= '<hr style="margin: 20px auto 0px auto;">';
+
+    $body .= '<div id="container-pie-charts" style="display: flex; justify-content: space-evenly; flex-wrap: wrap; margin: 0px auto; align-items: center; text-align: center; font-family: sans-serif;">';
+
+    $body .= '<div id="your-score-pie">';
+    $body .= '<h3 style="font-size: 16px; color: #333; margin-bottom: 10px;">Your Score</h3>';
+    $body .= '<img src="' . esc_url( $chart_url_user ) . '" alt="Your Score" style="max-width: 300px; height: auto;">';
+    $body .= '</div>';
+
+    $body .= '<div class="hide-on-mobile" style="width: 1px; height: 300px; background-color: #cccccc;"></div>';
+
+    $body .= '<div id="polis-score-pie">';
+    $body .= '<h3 style="font-size: 16px; color: #333; margin-bottom: 10px;">Polis Average</h3>';
+    $body .= '<img src="' . esc_url( $chart_url_avg ) . '" alt="Polis Average" style="max-width: 300px; height: auto;">';
+    $body .= '</div>';
+
+    $body .= '</div>';
+    $body .= '<hr style="margin: 0px auto 20px auto;">';
+
+    // Verificar si el usuario compró el curso (solo si es tipo closed)
+    $course_bought = false;
+
+    if ( $product_id && is_array( $user ) && isset( $user['ID'] ) ) {
+        $user = get_user_by( 'ID', $user['ID'] );
+    }
+
+    if ( $product_id && $user instanceof WP_User ) {
+        $customer_orders = wc_get_orders( [
+            'customer_id' => $user->ID,
+            'limit'       => -1,
+            'status'      => [ 'processing', 'completed', 'course-on-hold' ],
+        ] );
+
+        foreach ( $customer_orders as $order ) {
+            foreach ( $order->get_items() as $item ) {
+                if ( $item->get_product_id() == $product_id ) {
+                    $course_bought = true;
+                    break 2;
+                }
+            }
+        }
+    }
+
+    // Mensaje final según tipo de curso
+    if ( $is_free_course || $course_bought ) {
+        $body .= '<div id="content-bottom-message" style="text-align: center; padding: 10px 40px; font-family: sans-serif;">';
+        if ( $is_free_course ) {
+            $body .= '<h3>This is a free course — get started now!</h3>';
+        }
+        $body .= '<p><a href="' . esc_url( $login_redirect ) . '" style="display: inline-block; background-color: #000000; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;" target="_blank">Go to Course</a></p>';
+        if ( ! $is_free_course ) {
+            $body .= '<p style="color: #555;">Remember: after completing all the lessons, you will be able to take the final quiz to see how your results evolve over time.</p>';
+        }
+        $body .= '</div>';
+    } else {
+        $body .= '<div style="text-align: center; padding: 10px 40px; font-family: sans-serif;">';
+        $body .= '<p>To access the course content and take the quiz, please purchase the course first.</p>';
+        $body .= '<p><a href="' . esc_url( $add_to_cart_url ) . '" style="display: inline-block; background-color: #000000; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Buy Course</a></p>';
+        $body .= '</div>';
+    }
+
+    $body .= '<div style="text-align: center; padding: 10px 40px; font-family: sans-serif;">';
+    $body .= '<p>We hope you learn and have fun on this educational journey!</p>';
+    $body .= '</div>';
     $body .= '</div></div>';
 
     return [
