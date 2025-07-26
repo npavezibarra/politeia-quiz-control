@@ -662,109 +662,134 @@ add_action( 'woocommerce_before_cart', 'bfg_validar_y_avisar_compra_duplicada', 
 function politeia_get_latest_quiz_activity() {
     error_log( 'AJAX Debug: politeia_get_latest_quiz_activity function initiated.' );
 
-    if ( ! isset( $_POST['action'] ) || $_POST['action'] !== 'get_latest_quiz_activity' ) {
-        wp_send_json_error( 'Invalid AJAX action.' );
+    $received_action = isset( $_POST['action'] ) ? sanitize_text_field( $_POST['action'] ) : 'NOT_SET';
+    error_log( 'AJAX Debug: Received action: ' . $received_action );
+
+    if ( $received_action !== 'get_latest_quiz_activity' ) {
+        error_log( 'AJAX Debug: ERROR - Action mismatch or not set. Expected "get_latest_quiz_activity", received: ' . $received_action );
+        wp_send_json_error( 'Invalid AJAX action received by handler.' );
         exit;
     }
 
     global $wpdb;
 
-    $user_id = get_current_user_id();
-    $quiz_id = isset( $_POST['quiz_id'] ) ? intval( $_POST['quiz_id'] ) : 0;
+    $current_quiz_post_id = isset( $_POST['quiz_id'] ) ? intval( $_POST['quiz_id'] ) : 0;
+    $current_user_id = get_current_user_id();
 
-    if ( ! $user_id || ! $quiz_id ) {
-        wp_send_json_error( 'Missing user ID or quiz ID.' );
+    error_log( 'AJAX Debug: Params - Quiz Post ID: ' . $current_quiz_post_id . ', Current User ID: ' . $current_user_id );
+
+    if ( ! $current_quiz_post_id || ! $current_user_id ) {
+        error_log( 'AJAX Debug: ERROR - Missing essential IDs for AJAX request.' );
+        wp_send_json_error( 'Missing essential IDs for AJAX request.' );
         exit;
     }
 
-    // --- Fetch ALL relevant quiz attempts (matching shortcode's global logic) ---
-    // ✅ FIX: Use activity_completed > 0 for a more robust check.
+    // --- Fetch specific details for the CURRENT USER'S LATEST attempt on THIS quiz (for "Datos del Intento" box) ---
+    $current_user_latest_activity_data = null;
+    $user_specific_main_activity = $wpdb->get_row( $wpdb->prepare(
+        "SELECT activity_id, activity_started, activity_completed
+         FROM {$wpdb->prefix}learndash_user_activity
+         WHERE user_id = %d
+           AND post_id = %d
+           AND activity_type = 'quiz'
+           AND activity_completed IS NOT NULL
+         ORDER BY activity_id DESC
+         LIMIT 1",
+        $current_user_id,
+        $current_quiz_post_id
+    ) );
+
+    if ($user_specific_main_activity) {
+        error_log( 'AJAX Debug: User-specific latest main activity found ID: ' . $user_specific_main_activity->activity_id );
+
+        $raw_activity_meta_results_for_user_latest = $wpdb->get_results( $wpdb->prepare(
+            "SELECT activity_meta_key, activity_meta_value
+             FROM {$wpdb->prefix}learndash_user_activity_meta
+             WHERE activity_id = %d",
+            $user_specific_main_activity->activity_id
+        ), OBJECT );
+
+        $activity_meta_map_for_user_latest = [];
+        foreach ($raw_activity_meta_results_for_user_latest as $row) {
+            $activity_meta_map_for_user_latest[$row->activity_meta_key] = $row->activity_meta_value;
+        }
+
+        // --- MÁS LOG: Qué hay exactamente en activity_meta_map_for_user_latest ---
+        error_log( 'AJAX Debug: User-specific raw meta map for ID ' . $user_specific_main_activity->activity_id . ': ' . print_r($activity_meta_map_for_user_latest, true) );
+        error_log( 'AJAX Debug: Checking if total_points is set: ' . (isset($activity_meta_map_for_user_latest['total_points']) ? 'YES' : 'NO') );
+        error_log( 'AJAX Debug: Checking if percentage is set: ' . (isset($activity_meta_map_for_user_latest['percentage']) ? 'YES' : 'NO') );
+
+        // Only build current_user_latest_activity_data if essential score data is present for *this specific attempt*
+        if (isset($activity_meta_map_for_user_latest['total_points']) && isset($activity_meta_map_for_user_latest['percentage'])) {
+            $current_user_latest_activity_data = [
+                'activity_id' => $user_specific_main_activity->activity_id,
+                'started'     => date( 'Y-m-d H:i:s', $user_specific_main_activity->activity_started ),
+                'completed'   => date( 'Y-m-d H:i:s', $user_specific_main_activity->activity_completed ),
+                'duration'    => $user_specific_main_activity->activity_completed - $user_specific_main_activity->activity_started,
+                'score_data'  => [
+                    'score'        => isset($activity_meta_map_for_user_latest['score']) ? intval($activity_meta_map_for_user_latest['score']) : 0,
+                    'total_points' => isset($activity_meta_map_for_user_latest['total_points']) ? intval($activity_meta_map_for_user_latest['total_points']) : 0,
+                    'percentage'   => isset($activity_meta_map_for_user_latest['percentage']) ? round(floatval($activity_meta_map_for_user_latest['percentage'])) : 0,
+                    'passed'       => isset($activity_meta_map_for_user_latest['pass']) ? (bool)intval($activity_meta_map_for_user_latest['pass']) : false,
+                ],
+            ];
+            error_log( 'AJAX Debug: User-specific Latest activity details SUCCESSFULLY BUILT.' );
+        } else {
+            error_log( 'AJAX Debug: User-specific Latest activity (ID: ' . $user_specific_main_activity->activity_id . ') ESSENTIAL META DATA NOT YET AVAILABLE. Meta map: ' . print_r($activity_meta_map_for_user_latest, true) );
+        }
+    } else {
+        error_log( 'AJAX Debug: No user-specific main activity record found for current user on quiz ID: ' . $current_quiz_post_id );
+    }
+
+
+    // --- Fetch ALL relevant quiz attempts (matching shortcode's GLOBAL logic for Promedio Polis) ---
+    // ... (This section remains unchanged) ...
+    $all_global_attempts_percentages = [];
     $attempts_base_query_sql = "
         SELECT ua.activity_id
         FROM {$wpdb->prefix}learndash_user_activity AS ua
         INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS uam
             ON ua.activity_id = uam.activity_id
         WHERE ua.activity_type = 'quiz'
-          AND ua.activity_completed > 0
+          AND ua.activity_completed IS NOT NULL
           AND uam.activity_meta_key = 'quiz'
           AND uam.activity_meta_value+0 = %d
         ORDER BY ua.activity_id ASC
     ";
-    $all_activity_ids = $wpdb->get_results( $wpdb->prepare( $attempts_base_query_sql, $quiz_id ) );
+    $base_query_params = [$current_quiz_post_id];
 
-    $all_attempts_percentages = [];
-    $found_essential_meta = false;
+    $all_global_activity_ids = $wpdb->get_results( $wpdb->prepare( $attempts_base_query_sql, ...$base_query_params ) );
 
-    if ( ! empty($all_activity_ids) ) {
-        foreach ( $all_activity_ids as $activity_row ) {
-            $percentage_val = $wpdb->get_var( $wpdb->prepare( "
-                SELECT activity_meta_value
-                FROM {$wpdb->prefix}learndash_user_activity_meta
-                WHERE activity_id = %d AND activity_meta_key = 'percentage' LIMIT 1
-            ", $activity_row->activity_id ) );
+    foreach ( $all_global_activity_ids as $activity_row ) {
+        $percentage_val = $wpdb->get_var( $wpdb->prepare( "
+            SELECT activity_meta_value
+            FROM {$wpdb->prefix}learndash_user_activity_meta
+            WHERE activity_id = %d
+              AND activity_meta_key = 'percentage'
+            LIMIT 1
+        ", $activity_row->activity_id ) );
 
-            if ( $percentage_val !== null ) {
-                $all_attempts_percentages[] = [
-                    'id' => $activity_row->activity_id,
-                    'percentage' => round(floatval($percentage_val))
-                ];
-                $found_essential_meta = true;
-            }
-        }
-    }
-    
-    error_log( 'AJAX Debug: all_attempts_percentages (from AJAX): ' . print_r($all_attempts_percentages, true) );
-
-    // --- Fetch specific details for the LATEST quiz attempt (for "Datos del Intento" box) ---
-    $latest_activity_details = null;
-    // ✅ FIX: Use activity_completed > 0 here as well for consistency.
-    $latest_main_activity = $wpdb->get_row( $wpdb->prepare(
-        "SELECT activity_id, activity_started AS activity_started, activity_completed
-         FROM {$wpdb->prefix}learndash_user_activity
-         WHERE user_id = %d
-           AND post_id = %d
-           AND activity_type = 'quiz'
-           AND activity_completed > 0
-         ORDER BY activity_id DESC
-         LIMIT 1",
-        $user_id,
-        $quiz_id
-    ) );
-
-    if ($latest_main_activity) {
-        $raw_activity_meta_results = $wpdb->get_results( $wpdb->prepare(
-            "SELECT activity_meta_key, activity_meta_value
-             FROM {$wpdb->prefix}learndash_user_activity_meta
-             WHERE activity_id = %d",
-            $latest_main_activity->activity_id
-        ), OBJECT_K ); // Use OBJECT_K for easier mapping
-
-        // Only build latest_activity_details if essential score data is present
-        if (isset($raw_activity_meta_results['total_points']) && isset($raw_activity_meta_results['percentage'])) {
-            $latest_activity_details = [
-                'activity_id' => $latest_main_activity->activity_id,
-                'started'     => date( 'Y-m-d H:i:s', $latest_main_activity->activity_started ),
-                'completed'   => date( 'Y-m-d H:i:s', $latest_main_activity->activity_completed ),
-                'duration'    => $latest_main_activity->activity_completed - $latest_main_activity->activity_started,
-                'score_data'  => [
-                    'score'        => isset($raw_activity_meta_results['score']) ? intval($raw_activity_meta_results['score']->activity_meta_value) : 0,
-                    'total_points' => intval($raw_activity_meta_results['total_points']->activity_meta_value),
-                    'percentage'   => round(floatval($raw_activity_meta_results['percentage']->activity_meta_value)),
-                    'passed'       => isset($raw_activity_meta_results['pass']) ? (bool)intval($raw_activity_meta_results['pass']->activity_meta_value) : false,
-                ],
+        if ( $percentage_val !== null && is_numeric($percentage_val) ) {
+            $all_global_attempts_percentages[] = [
+                'id' => $activity_row->activity_id,
+                'percentage' => round(floatval($percentage_val))
             ];
-            error_log( 'AJAX Debug: Latest activity details (for UI box): ' . print_r($latest_activity_details, true) );
         }
     }
+    error_log( 'AJAX Debug: all_global_attempts_percentages (for Promedio Polis): ' . print_r($all_global_attempts_percentages, true) );
 
-    if ( ! $latest_activity_details || ! $found_essential_meta ) {
-        error_log( 'AJAX Debug: Essential data not yet available. Continue polling.' );
-        wp_send_json_error( 'Essential quiz data not yet available.' );
+
+    // --- Send response ---
+    // Now, always send success if global percentages are available.
+    // The client-side will decide if latest_activity_details is complete enough to display.
+    if ( !empty($all_global_attempts_percentages) ) {
+        wp_send_json_success( array(
+            'all_attempts_percentages' => $all_global_attempts_percentages,
+            'latest_activity_details'  => $current_user_latest_activity_data, // This can now be null/incomplete
+        ) );
     } else {
-        wp_send_json_success( [
-            'all_attempts_percentages' => $all_attempts_percentages,
-            'latest_activity_details'  => $latest_activity_details,
-        ] );
+        error_log( 'AJAX Debug: No global percentages available yet. Continue polling.' );
+        wp_send_json_error( 'No global percentages available yet for polling.' );
     }
     exit;
 }
