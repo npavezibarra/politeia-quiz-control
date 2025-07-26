@@ -651,4 +651,128 @@ function bfg_validar_y_avisar_compra_duplicada() {
 add_action( 'woocommerce_before_checkout_form', 'bfg_validar_y_avisar_compra_duplicada', 1 );
 add_action( 'woocommerce_before_cart', 'bfg_validar_y_avisar_compra_duplicada', 1 );
 
-?>
+
+/* FUNCION AJAX */
+
+
+/**
+ * Manejador AJAX para obtener la última actividad del quiz.
+ * Esta función es invocada por las peticiones AJAX desde el cliente.
+ */
+function politeia_get_latest_quiz_activity() {
+    error_log( 'AJAX Debug: politeia_get_latest_quiz_activity function initiated.' );
+
+    if ( ! isset( $_POST['action'] ) || $_POST['action'] !== 'get_latest_quiz_activity' ) {
+        wp_send_json_error( 'Invalid AJAX action.' );
+        exit;
+    }
+
+    global $wpdb;
+
+    $user_id = get_current_user_id();
+    $quiz_id = isset( $_POST['quiz_id'] ) ? intval( $_POST['quiz_id'] ) : 0;
+
+    if ( ! $user_id || ! $quiz_id ) {
+        wp_send_json_error( 'Missing user ID or quiz ID.' );
+        exit;
+    }
+
+    // --- Fetch ALL relevant quiz attempts (matching shortcode's global logic) ---
+    // ✅ FIX: Use activity_completed > 0 for a more robust check.
+    $attempts_base_query_sql = "
+        SELECT ua.activity_id
+        FROM {$wpdb->prefix}learndash_user_activity AS ua
+        INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS uam
+            ON ua.activity_id = uam.activity_id
+        WHERE ua.activity_type = 'quiz'
+          AND ua.activity_completed > 0
+          AND uam.activity_meta_key = 'quiz'
+          AND uam.activity_meta_value+0 = %d
+        ORDER BY ua.activity_id ASC
+    ";
+    $all_activity_ids = $wpdb->get_results( $wpdb->prepare( $attempts_base_query_sql, $quiz_id ) );
+
+    $all_attempts_percentages = [];
+    $found_essential_meta = false;
+
+    if ( ! empty($all_activity_ids) ) {
+        foreach ( $all_activity_ids as $activity_row ) {
+            $percentage_val = $wpdb->get_var( $wpdb->prepare( "
+                SELECT activity_meta_value
+                FROM {$wpdb->prefix}learndash_user_activity_meta
+                WHERE activity_id = %d AND activity_meta_key = 'percentage' LIMIT 1
+            ", $activity_row->activity_id ) );
+
+            if ( $percentage_val !== null ) {
+                $all_attempts_percentages[] = [
+                    'id' => $activity_row->activity_id,
+                    'percentage' => round(floatval($percentage_val))
+                ];
+                $found_essential_meta = true;
+            }
+        }
+    }
+    
+    error_log( 'AJAX Debug: all_attempts_percentages (from AJAX): ' . print_r($all_attempts_percentages, true) );
+
+    // --- Fetch specific details for the LATEST quiz attempt (for "Datos del Intento" box) ---
+    $latest_activity_details = null;
+    // ✅ FIX: Use activity_completed > 0 here as well for consistency.
+    $latest_main_activity = $wpdb->get_row( $wpdb->prepare(
+        "SELECT activity_id, activity_started AS activity_started, activity_completed
+         FROM {$wpdb->prefix}learndash_user_activity
+         WHERE user_id = %d
+           AND post_id = %d
+           AND activity_type = 'quiz'
+           AND activity_completed > 0
+         ORDER BY activity_id DESC
+         LIMIT 1",
+        $user_id,
+        $quiz_id
+    ) );
+
+    if ($latest_main_activity) {
+        $raw_activity_meta_results = $wpdb->get_results( $wpdb->prepare(
+            "SELECT activity_meta_key, activity_meta_value
+             FROM {$wpdb->prefix}learndash_user_activity_meta
+             WHERE activity_id = %d",
+            $latest_main_activity->activity_id
+        ), OBJECT_K ); // Use OBJECT_K for easier mapping
+
+        // Only build latest_activity_details if essential score data is present
+        if (isset($raw_activity_meta_results['total_points']) && isset($raw_activity_meta_results['percentage'])) {
+            $latest_activity_details = [
+                'activity_id' => $latest_main_activity->activity_id,
+                'started'     => date( 'Y-m-d H:i:s', $latest_main_activity->activity_started ),
+                'completed'   => date( 'Y-m-d H:i:s', $latest_main_activity->activity_completed ),
+                'duration'    => $latest_main_activity->activity_completed - $latest_main_activity->activity_started,
+                'score_data'  => [
+                    'score'        => isset($raw_activity_meta_results['score']) ? intval($raw_activity_meta_results['score']->activity_meta_value) : 0,
+                    'total_points' => intval($raw_activity_meta_results['total_points']->activity_meta_value),
+                    'percentage'   => round(floatval($raw_activity_meta_results['percentage']->activity_meta_value)),
+                    'passed'       => isset($raw_activity_meta_results['pass']) ? (bool)intval($raw_activity_meta_results['pass']->activity_meta_value) : false,
+                ],
+            ];
+            error_log( 'AJAX Debug: Latest activity details (for UI box): ' . print_r($latest_activity_details, true) );
+        }
+    }
+
+    if ( ! $latest_activity_details || ! $found_essential_meta ) {
+        error_log( 'AJAX Debug: Essential data not yet available. Continue polling.' );
+        wp_send_json_error( 'Essential quiz data not yet available.' );
+    } else {
+        wp_send_json_success( [
+            'all_attempts_percentages' => $all_attempts_percentages,
+            'latest_activity_details'  => $latest_activity_details,
+        ] );
+    }
+    exit;
+}
+
+// Estos "hooks" son los que registran tu función AJAX con WordPress.
+// Se ejecutan automáticamente cuando WordPress procesa una petición a admin-ajax.php
+// con la acción 'get_latest_quiz_activity'.
+// 'wp_ajax_' es para usuarios logueados.
+add_action( 'wp_ajax_get_latest_quiz_activity', 'politeia_get_latest_quiz_activity' );
+// 'wp_ajax_nopriv_' es para usuarios no logueados (si quieres que vean los resultados).
+add_action( 'wp_ajax_nopriv_get_latest_quiz_activity', 'politeia_get_latest_quiz_activity' );

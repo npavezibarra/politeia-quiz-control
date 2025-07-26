@@ -121,6 +121,7 @@ require_once plugin_dir_path( __FILE__ ) . 'functions.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-politeia-quiz-stats.php';
 // Cargar el controlador de correos electrónicos del plugin.
 require_once plugin_dir_path( __FILE__ ) . 'emails.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/polis-average-quiz-result.php';
 
 
 /* Registration Redirect */
