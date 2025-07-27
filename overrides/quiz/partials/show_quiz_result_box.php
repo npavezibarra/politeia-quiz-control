@@ -225,7 +225,7 @@ if ( $is_final_quiz && $course_id ) {
         </div>
     </div>
 
-    <div style="margin: 10px auto; max-width: 600px; padding: 10px 20px; border: 1px dashed #eee; font-size: 14px; text-align: center; background-color: #f9f9f9;">
+    <div style="margin: 10px auto; max-width: 600px; padding: 10px 20px; border: 1px dashed #eee; font-size: 14px; text-align: center; background-color: #f9f9f9; display:none;">
         <strong>LATEST ACTIVITY ID (PHP Render - Global):</strong>
         <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : 'N/A' ); ?>
         <br>
@@ -234,7 +234,7 @@ if ( $is_final_quiz && $course_id ) {
         </small>
     </div>
 
-    <div style="margin: 10px auto; max-width: 600px; padding: 10px 20px; border: 1px dashed #eee; font-size: 14px; text-align: center; background-color: #f9f9f9; color: blue;">
+    <div style="margin: 10px auto; max-width: 600px; padding: 10px 20px; border: 1px dashed #eee; font-size: 14px; text-align: center; background-color: #f9f9f9; color: blue; display:none;">
         <strong>PHP Calculated Promedio Polis (initial chart value – from shortcode):</strong>
         <?php echo esc_html( $polis_average ); ?>%<br>
         <strong>PHP Calculated Polis Attempts Count (initial chart value – from shortcode):</strong>
@@ -465,11 +465,11 @@ document.addEventListener("DOMContentLoaded", function () {
             scoreDiv.innerHTML = mensajeHTML;
         }
 
-        // --- JavaScript Polling for Datos del Intento ---
+        // --- JavaScript Polling for Datos del Intento (MODIFIED) ---
         let pollInterval;
         let currentChartPromedioInstance;
         let pollAttempts = 0;
-        const MAX_POLL_ATTEMPTS = 10;
+        const MAX_POLL_ATTEMPTS = 30; // Increased since we're waiting for a specific condition
 
         const fetchDatosDelIntento = () => {
             pollAttempts++;
@@ -479,7 +479,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 type: 'POST',
                 data: {
                     action: 'get_latest_quiz_activity',
-                    quiz_id: currentQuizId
+                    quiz_id: currentQuizId,
+                    baseline_activity_id: phpInitialLatestActivityId  // Pass the baseline ID
                 },
                 success: function(response) {
                     let shouldStopPolling = false;
@@ -487,6 +488,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     if (response.success && response.data) {
                         const latestActivityDetails = response.data.latest_activity_details;
                         const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages;
+                        const newAttemptFound = response.data.new_attempt_found;
 
                         // Solo en First Quiz se actualiza Promedio Polis con AJAX
                         if (!isFinalQuiz && chartContainerPromedio && allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
@@ -510,16 +512,17 @@ document.addEventListener("DOMContentLoaded", function () {
                             }
                         }
 
-                        if (latestActivityDetails && latestActivityDetails.score_data) {
+                        // SUCCESS: We found the new attempt with complete data
+                        if (newAttemptFound && latestActivityDetails && latestActivityDetails.score_data) {
                             const scoreData = latestActivityDetails.score_data;
                             const html = `
-                                <div style="margin: 30px auto; max-width: 600px; padding: 20px; border: 1px dashed #ccc; font-size: 15px;">
-                                    <h4 style="margin-bottom: 10px;">🧪 Datos del Intento (ACTUAL LAST)</h4>
-                                    <p><strong>Activity ID:</strong> ${latestActivityDetails.activity_id}</p>
+                                <div style="margin: 30px auto; max-width: 600px; padding: 20px; border: 2px solid #4CAF50; font-size: 15px; background-color: #f0f8f0; display:none;">
+                                    <h4 style="margin-bottom: 10px; color: #4CAF50;">✅ Datos del Intento (NUEVO INTENTO ENCONTRADO)</h4>
+                                    <p><strong>Activity ID:</strong> ${latestActivityDetails.activity_id} <em>(Mayor que baseline: ${phpInitialLatestActivityId})</em></p>
                                     <p><strong>Inicio:</strong> ${latestActivityDetails.started}</p>
                                     <p><strong>Término:</strong> ${latestActivityDetails.completed}</p>
                                     <p><strong>Duración:</strong> ${latestActivityDetails.duration} segundos</p>
-                                    <hr style="border-top: 1px dashed #eee; margin: 15px 0;">
+                                    <hr style="border-top: 1px solid #4CAF50; margin: 15px 0;">
                                     <p><strong>Puntaje:</strong> ${scoreData.score} de ${scoreData.total_points}</p>
                                     <p><strong>Porcentaje:</strong> ${scoreData.percentage}%</p>
                                     <p><strong>Estado:</strong> ${scoreData.passed ? 'Aprobado' : 'Reprobado'}</p>
@@ -528,21 +531,42 @@ document.addEventListener("DOMContentLoaded", function () {
                             datosDelIntentoContainer.innerHTML = html;
                             shouldStopPolling = true;
                         } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                            datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Detalles del último intento no disponibles aún. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                            datosDelIntentoContainer.innerHTML = `
+                                <p style="color:orange; font-weight:bold; text-align:center;">
+                                    ⚠️ No se encontró un nuevo intento después de ${MAX_POLL_ATTEMPTS} intentos.<br>
+                                    <small>Esperaba Activity ID mayor que ${phpInitialLatestActivityId}</small><br>
+                                    Por favor, recarga la página si completaste el quiz.
+                                </p>
+                            `;
                             shouldStopPolling = true;
                         } else {
-                            let loadingMessage = `Cargando detalles del último intento (intento ${pollAttempts}/${MAX_POLL_ATTEMPTS})...`;
+                            // Still polling - show progress
+                            let loadingMessage = `🔍 Esperando nuevo intento (mayor que ID: ${phpInitialLatestActivityId}) - Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}`;
                             if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
-                                 loadingMessage += ` Promedio Polis global actualizado.`;
+                                loadingMessage += ` | Promedio Polis actualizado ✓`;
                             }
                             datosDelIntentoContainer.innerHTML = `<p style="text-align:center; color:#555;">${loadingMessage}</p>`;
                         }
                     } else {
-                        if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                            datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.</p>`;
-                            shouldStopPolling = true;
+                        // Error response - but check if we should continue polling
+                        const errorData = response.data || {};
+                        const continuePolling = errorData.continue_polling;
+                        
+                        if (continuePolling && pollAttempts < MAX_POLL_ATTEMPTS) {
+                            const message = errorData.message || 'Esperando nuevo intento...';
+                            datosDelIntentoContainer.innerHTML = `
+                                <p style="text-align:center; color:#666;">
+                                    🔍 ${message}<br>
+                                    <small>Buscando Activity ID mayor que ${phpInitialLatestActivityId} - Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}</small>
+                                </p>
+                            `;
                         } else {
-                            datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
+                            if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                                datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                                shouldStopPolling = true;
+                            } else {
+                                datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
+                            }
                         }
                     }
 
@@ -551,11 +575,22 @@ document.addEventListener("DOMContentLoaded", function () {
                     }
                 },
                 error: function(jqXHR, textStatus, errorThrown) {
+                    console.error('AJAX Error:', textStatus, errorThrown);
+                    
                     if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                        datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo de comunicación con el servidor. Por favor, recarga la página o inténtalo más tarde.</p>`;
+                        datosDelIntentoContainer.innerHTML = `
+                            <p style="color:red; font-weight:bold; text-align:center;">
+                                ❌ Error de comunicación después de ${MAX_POLL_ATTEMPTS} intentos.<br>
+                                Por favor, recarga la página.
+                            </p>
+                        `;
                         clearInterval(pollInterval);
                     } else {
-                        datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
+                        datosDelIntentoContainer.innerHTML = `
+                            <p style="color:orange; text-align:center;">
+                                ⚠️ Error de conexión - Reintentando ${pollAttempts}/${MAX_POLL_ATTEMPTS}...
+                            </p>
+                        `;
                     }
                 }
             });
