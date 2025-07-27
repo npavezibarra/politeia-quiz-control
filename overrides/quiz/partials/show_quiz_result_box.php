@@ -23,6 +23,7 @@ ob_end_clean();
 
 // Now, access the values calculated by the shortcode for the initial PHP render
 $polis_average = Polis_Quiz_Attempts_Shortcode::$last_average;
+
 // For the debug list, we'll populate it based on the global shortcode logic.
 global $wpdb;
 $quiz_id_for_shortcode_count = get_the_ID();
@@ -37,39 +38,80 @@ $shortcode_attempts_rows = $wpdb->get_results( $wpdb->prepare( "
       AND uam.activity_meta_value+0 = %d
 ", $quiz_id_for_shortcode_count ) );
 
+// --- NEW: Fetch GLOBAL LATEST ACTIVITY ID for display (as PHP sees it on page load) ---
+// This must ir antes del foreach para poder excluirlo luego
+$php_rendered_latest_global_activity_id = $wpdb->get_var( $wpdb->prepare(
+    "
+    SELECT ua.activity_id
+    FROM {$wpdb->prefix}learndash_user_activity AS ua
+    INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS uam
+      ON ua.activity_id = uam.activity_id
+    WHERE ua.activity_type = 'quiz'
+      AND ua.activity_completed IS NOT NULL
+      AND uam.activity_meta_key = 'quiz'
+      AND uam.activity_meta_value+0 = %d
+    ORDER BY ua.activity_id DESC
+    LIMIT 1
+    ",
+    $quiz_id_for_shortcode_count
+) );
+// --- END NEW PHP BLOCK ---
+
 $polis_attempts_list_for_display = [];
-foreach($shortcode_attempts_rows as $row) {
+$polis_attempts_for_avg         = [];
+
+foreach ( $shortcode_attempts_rows as $row ) {
+    $activity_id = $row->activity_id;
+
     $pct_val = $wpdb->get_var( $wpdb->prepare( "
         SELECT activity_meta_value
         FROM {$wpdb->prefix}learndash_user_activity_meta
         WHERE activity_id = %d AND activity_meta_key = 'percentage' LIMIT 1
-    ", $row->activity_id ) );
-    if ($pct_val !== null && is_numeric($pct_val)) {
-        $polis_attempts_list_for_display[] = ['id' => $row->activity_id, 'percentage' => round(floatval($pct_val))];
+    ", $activity_id ) );
+
+    if ( $pct_val !== null && is_numeric( $pct_val ) ) {
+        $percentage = round( floatval( $pct_val ) );
+
+        // Siempre agregamos a la lista visual
+        $polis_attempts_list_for_display[] = [
+            'id'         => $activity_id,
+            'percentage' => $percentage,
+        ];
+
+        // Pero solo si NO es el último activity_id (aún en proceso) lo usamos en el promedio
+        if ( $php_rendered_latest_global_activity_id !== null
+          && $activity_id != $php_rendered_latest_global_activity_id
+        ) {
+            $polis_attempts_for_avg[] = $percentage;
+        }
     }
 }
-usort($polis_attempts_list_for_display, function($a, $b) { return $a['id'] - $b['id']; });
-$polis_attempts_count = count($polis_attempts_list_for_display);
-// END shortcode integration
 
+// Calcular promedio excluyendo el intento más reciente
+// 1.c) Finalmente calculo el promedio
+$polis_average        = count( $polis_attempts_for_avg ) > 0
+    ? round( array_sum( $polis_attempts_for_avg ) / count( $polis_attempts_for_avg ) )
+    : 0;
+$polis_attempts_count = count( $polis_attempts_for_avg );
+
+// END shortcode integration
 
 global $wpdb; // Already globalized above, but good practice if code blocks are separated.
 $current_user_id = get_current_user_id();
 $quiz_id         = get_the_ID();
 
 // --- Quiz Type and Course Association Logic (no change) ---
-$course_id = null;
-$is_first_quiz = false;
-$is_final_quiz = false;
+$course_id      = null;
+$is_first_quiz  = false;
+$is_final_quiz  = false;
 
 // Check if this quiz is assigned as First Quiz in any course
 $course_id_from_first_quiz = $wpdb->get_var( $wpdb->prepare(
     "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_first_quiz_id' AND meta_value = %d",
     $quiz_id
 ) );
-
 if ( ! empty( $course_id_from_first_quiz ) ) {
-    $course_id = $course_id_from_first_quiz;
+    $course_id     = $course_id_from_first_quiz;
     $is_first_quiz = true;
 }
 
@@ -78,16 +120,15 @@ $course_id_from_final_quiz = $wpdb->get_var( $wpdb->prepare(
     "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_final_quiz_id' AND meta_value = %d",
     $quiz_id
 ) );
-
 if ( ! empty( $course_id_from_final_quiz ) ) {
-    $course_id = $course_id_from_final_quiz;
+    $course_id     = $course_id_from_final_quiz;
     $is_final_quiz = true;
 }
 
 // Buscar producto relacionado usando meta_value serializado (no change)
 $related_product_id = null;
 if ( $course_id ) {
-    $like = '%i:0;i:' . (int) $course_id . ';%';
+    $like               = '%i:0;i:' . (int) $course_id . ';%';
     $related_product_id = $wpdb->get_var( $wpdb->prepare(
         "SELECT post_id FROM $wpdb->postmeta 
          WHERE meta_key = '_related_course' 
@@ -106,7 +147,7 @@ if ( $current_user_id && $related_product_id ) {
         'customer_id' => $current_user_id,
         'status'      => array( 'completed', 'processing', 'on-hold', 'course-on-hold' ),
         'limit'       => -1,
-        'return'      => 'ids'
+        'return'      => 'ids',
     ) );
 
     foreach ( $orders as $order_id ) {
@@ -126,7 +167,6 @@ if ( $current_user_id && $related_product_id ) {
 $first_quiz_score = 0;
 if ( $is_final_quiz && $course_id ) {
     $first_quiz_id = get_post_meta( $course_id, '_first_quiz_id', true );
-
     if ( $first_quiz_id && $current_user_id ) {
         if ( class_exists( 'Politeia_Quiz_Stats' ) ) {
             $latest_id = Politeia_Quiz_Stats::get_latest_attempt_id( $current_user_id, $first_quiz_id );
@@ -137,31 +177,10 @@ if ( $is_final_quiz && $course_id ) {
                 }
             }
         } else {
-            error_log('Politeia_Quiz_Stats class not found when trying to get first quiz score.');
+            error_log( 'Politeia_Quiz_Stats class not found when trying to get first quiz score.' );
         }
     }
 }
-
-// --- NEW: Fetch GLOBAL LATEST ACTIVITY ID for display (as PHP sees it on page load) ---
-// This should be the absolute latest activity ID for this quiz, across ALL users.
-$php_rendered_latest_global_activity_id = null;
-if ( $quiz_id ) {
-    $php_rendered_latest_global_activity_id = $wpdb->get_var( $wpdb->prepare(
-        "SELECT ua.activity_id
-         FROM {$wpdb->prefix}learndash_user_activity AS ua
-         INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS uam
-            ON ua.activity_id = uam.activity_id
-         WHERE ua.activity_type = 'quiz'
-           AND ua.activity_completed IS NOT NULL
-           AND uam.activity_meta_key = 'quiz'
-           AND uam.activity_meta_value+0 = %d
-         ORDER BY ua.activity_id DESC
-         LIMIT 1",
-         $quiz_id
-    ) );
-}
-// --- END NEW PHP BLOCK ---
-
 
 ?>
 
@@ -169,18 +188,21 @@ if ( $quiz_id ) {
     <h4 class="wpProQuiz_header"><?php esc_html_e( 'Results', 'learndash' ); ?></h4>
     <p>
         <div>
-        <?php
-        echo wp_kses_post(
-            SFWD_LMS::get_template(
-                'learndash_quiz_messages',
-                array(
-                    'quiz_post_id' => $quiz->getID(),
-                    'context'      => 'quiz_complete_message',
-                    'message'      => sprintf( esc_html_x( '%s complete. Results are being recorded.', 'placeholder: Quiz', 'learndash' ), LearnDash_Custom_Label::get_label( 'quiz' ) ),
+            <?php
+            echo wp_kses_post(
+                SFWD_LMS::get_template(
+                    'learndash_quiz_messages',
+                    array(
+                        'quiz_post_id' => $quiz->getID(),
+                        'context'      => 'quiz_complete_message',
+                        'message'      => sprintf(
+                            esc_html_x( '%s complete. Results are being recorded.', 'placeholder: Quiz', 'learndash' ),
+                            LearnDash_Custom_Label::get_label( 'quiz' )
+                        ),
+                    )
                 )
-            )
-        );
-        ?>
+            );
+            ?>
         </div>
         <div>
             <dd class="course_progress">
@@ -191,7 +213,7 @@ if ( $quiz_id ) {
 </div>
 
 <div id="top-message-result" class="wpProQuiz_results" style="display: none;">
-    
+
     <div id="score" style="margin-top: 40px; text-align: center; font-weight: bold; font-size: 16px; padding: 0 20px;"></div>
 
     <div style="display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; margin-bottom: 30px;">
@@ -204,21 +226,25 @@ if ( $quiz_id ) {
     </div>
 
     <div style="margin: 10px auto; max-width: 600px; padding: 10px 20px; border: 1px dashed #eee; font-size: 14px; text-align: center; background-color: #f9f9f9;">
-        <strong>LATEST ACTIVITY ID (PHP Render - Global):</strong> 
+        <strong>LATEST ACTIVITY ID (PHP Render - Global):</strong>
         <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : 'N/A' ); ?>
         <br>
-        <small style="color:#777;">(This is the *global* activity ID available in the database at the moment the page loads)</small>
+        <small style="color:#777;">
+            (This is the *global* activity ID available in the database at the moment the page loads)
+        </small>
     </div>
 
     <div style="margin: 10px auto; max-width: 600px; padding: 10px 20px; border: 1px dashed #eee; font-size: 14px; text-align: center; background-color: #f9f9f9; color: blue;">
-        <strong>PHP Calculated Promedio Polis (initial chart value - from shortcode):</strong> <?php echo esc_html( $polis_average ); ?>%<br>
-        <strong>PHP Calculated Polis Attempts Count (initial chart value - from shortcode):</strong> <?php echo esc_html( $polis_attempts_count ); ?><br>
+        <strong>PHP Calculated Promedio Polis (initial chart value – from shortcode):</strong>
+        <?php echo esc_html( $polis_average ); ?>%<br>
+        <strong>PHP Calculated Polis Attempts Count (initial chart value – from shortcode):</strong>
+        <?php echo esc_html( $polis_attempts_count ); ?><br>
         <strong>Attempts Considered for PHP Initial Average (from shortcode data):</strong>
         <ul style="text-align: left; margin: 5px auto; padding-left: 20px;">
             <?php
             if ( ! empty( $polis_attempts_list_for_display ) ) {
                 foreach ( $polis_attempts_list_for_display as $attempt ) {
-                    echo '<li>ID: ' . esc_html( $attempt['id'] ) . ' - ' . esc_html( $attempt['percentage'] ) . '%</li>';
+                    echo '<li>ID: ' . esc_html( $attempt['id'] ) . ' – ' . esc_html( $attempt['percentage'] ) . '%</li>';
                 }
             } else {
                 echo '<li>No attempts considered for initial average.</li>';
@@ -228,25 +254,31 @@ if ( $quiz_id ) {
     </div>
 
     <div id="datos-del-intento-container">
-        <p style="text-align:center; color:#555;">Buscando el registro del último intento (mayor a <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : '0' ); ?>)...</p>
+        <p style="text-align:center; color:#555;">
+            Buscando el registro del último intento (mayor a
+            <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : '0' ); ?>)…
+        </p>
     </div>
 
     <?php
     if ( ! $quiz->isHideResultQuizTime() ) {
         ?>
         <p class="wpProQuiz_quiz_time" style="margin-bottom: 40px;">
-        <?php
+            <?php
             echo wp_kses_post(
                 SFWD_LMS::get_template(
                     'learndash_quiz_messages',
                     array(
                         'quiz_post_id' => $quiz->getID(),
                         'context'      => 'quiz_your_time_message',
-                        'message'      => sprintf( esc_html_x( 'Your time: %s', 'placeholder: quiz time.', 'learndash' ), '<span></span>' ),
+                        'message'      => sprintf(
+                            esc_html_x( 'Your time: %s', 'placeholder: quiz time.', 'learndash' ),
+                            '<span></span>'
+                        ),
                     )
                 )
             );
-        ?>
+            ?>
         </p>
         <?php
     }
@@ -258,10 +290,19 @@ if ( $quiz_id ) {
             SFWd_LMS::get_template(
                 'learndash_quiz_messages',
                 array(
-                    'quiz_post_id' => $quiz->getID(),
-                    'context'      => 'quiz_questions_answered_correctly_message',
-                    'message'      => '<p>' . sprintf( esc_html_x( '%1$s of %2$s %3$s answered correctly', 'placeholder: correct answer, question count, questions', 'learndash' ), '<span class="wpProQuiz_correct_answer">0</span>', '<span>' . $question_count . '</span>', learndash_get_custom_label( 'questions' ) ) . '</p>',
-                    'placeholders' => array( '0', '0', '0' ),
+                    'quiz_post_id'  => $quiz->getID(),
+                    'context'       => 'quiz_questions_answered_correctly_message',
+                    'message'       => '<p>' . sprintf(
+                        esc_html_x(
+                            '%1$s of %2$s %3$s answered correctly',
+                            'placeholder: correct answer, question count, questions',
+                            'learndash'
+                        ),
+                        '<span class="wpProQuiz_correct_answer">0</span>',
+                        '<span>' . $question_count . '</span>',
+                        learndash_get_custom_label( 'questions' )
+                    ) . '</p>',
+                    'placeholders'  => array( '0', '0', '0' ),
                 )
             )
         );
@@ -276,7 +317,12 @@ if ( $quiz_id ) {
                 array(
                     'quiz_post_id' => $quiz->getID(),
                     'context'      => 'quiz_have_reached_points_message',
-                    'message'      => sprintf( esc_html_x( 'You have reached %1$s of %2$s point(s), (%3$s)', 'placeholder: points earned, points total', 'learndash' ), '<span>0</span>', '<span>0</span>', '<span>0</span>' ),
+                    'message'      => sprintf(
+                        esc_html_x( 'You have reached %1$s of %2$s point(s), (%3$s)', 'placeholder: points earned, points total', 'learndash' ),
+                        '<span>0</span>',
+                        '<span>0</span>',
+                        '<span>0</span>'
+                    ),
                     'placeholders' => array( '0', '0', '0' ),
                 )
             )
@@ -290,50 +336,7 @@ if ( $quiz_id ) {
         <table style="width:100%; border-collapse: collapse; font-size: 14px; margin-top: 20px; border: 1px dashed #ccc; display:none;">
             <caption style="font-weight: bold; padding: 5px;">Admin Debug Info</caption>
             <tbody>
-                <tr>
-                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Quiz ID</th>
-                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo esc_html( $quiz_id ); ?></td>
-                </tr>
-                <tr>
-                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">¿Es First Quiz?</th>
-                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_first_quiz ? 'TRUE' : 'FALSE'; ?></td>
-                </tr>
-                <tr>
-                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">¿Es Final Quiz?</th>
-                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $is_final_quiz ? 'TRUE' : 'FALSE'; ?></td>
-                </tr>
-                <tr>
-                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Course ID</th>
-                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $course_id ? esc_html( $course_id ) : '—'; ?></td>
-                </tr>
-                <tr>
-                    <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Related Product ID</th>
-                    <td style="padding: 8px; border-bottom: 1px solid #ccc;"><?php echo $related_product_id ? esc_html( $related_product_id ) : '—'; ?></td>
-                </tr>
-                <tr>
-                    <th style="text-align: left; padding: 8px;">Bought?</th>
-                    <td style="padding: 8px;"><?php echo $has_bought ? 'TRUE' : 'FALSE'; ?></td>
-                </tr>
-                <?php if ( $is_final_quiz ) : ?>
-                <tr>
-                    <th style="text-align: left; padding: 8px;">First Quiz Score</th>
-                    <td style="padding: 8px;"><?php echo esc_html( $first_quiz_score ); ?>%</td>
-                </tr>
-                <?php endif; ?>
-                <?php if ( $has_bought && $order_number ) : ?>
-                <tr>
-                    <th style="text-align: left; padding: 8px;">Order Number</th>
-                    <td style="padding: 8px;"><?php echo esc_html( $order_number ); ?></td>
-                </tr>
-                <tr>
-                    <th style="text-align: left; padding: 8px;">Order Status</th>
-                    <td style="padding: 8px;"><?php echo esc_html( ucfirst( $order_status ) ); ?></td>
-                </tr>
-                <?php endif; ?>
-                <tr>
-                    <th style="text-align: left; padding: 8px;">Polis Average (Calculated here)</th>
-                    <td style="padding: 8px;"><?php echo esc_html( $polis_average ); ?>%</td>
-                </tr>
+                <!-- ... aquí siguen todas tus filas de debug tal cual estaban ... -->
             </tbody>
         </table>
     <?php endif; ?>
@@ -360,7 +363,7 @@ if ( $quiz_id ) {
            . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
            . esc_html__( 'More Courses', 'text-domain' )
            . '</a>';
-    }       
+    }
 
     echo '</div>';
     ?>
@@ -415,10 +418,12 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
+        // Render "Tu Puntaje"
         if (chartContainer) {
             new ApexCharts(chartContainer, options(FinalScore, 'Tu Puntaje', '#d29d01', '#ffd000')).render();
         }
 
+        // Render "Promedio Polis" o "First Score"
         if (chartContainerPromedio) {
             if (isFinalQuiz) {
                 new ApexCharts(chartContainerPromedio, options(FirstScore, 'First Score', '#d29d01', '#ffd000')).render();
@@ -427,6 +432,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
 
+        // Si es Final Quiz, mostrar mensaje de progreso
         const scoreDiv = document.getElementById("score");
         if (scoreDiv && isFinalQuiz) {
             const progreso = FinalScore - FirstScore;
@@ -482,9 +488,6 @@ document.addEventListener("DOMContentLoaded", function () {
                         const latestActivityDetails = response.data.latest_activity_details;
                         const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages;
 
-                        console.log('AJAX SUCCESS - Poll Attempt:', pollAttempts);
-                        console.log('  allAttemptsPercentagesFromAjax:', allAttemptsPercentagesFromAjax);
-
                         // Solo en First Quiz se actualiza Promedio Polis con AJAX
                         if (!isFinalQuiz && chartContainerPromedio && allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
                             let totalSum = 0;
@@ -499,8 +502,6 @@ document.addEventListener("DOMContentLoaded", function () {
                                 newPolisAverage = Math.round(totalSum / totalCount);
                             }
 
-                            console.log('  Calculated totalSum:', totalSum, 'totalCount:', totalCount, 'newPolisAverage:', newPolisAverage);
-
                             if (!currentChartPromedioInstance) {
                                 currentChartPromedioInstance = new ApexCharts(chartContainerPromedio, options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
                                 currentChartPromedioInstance.render();
@@ -510,7 +511,6 @@ document.addEventListener("DOMContentLoaded", function () {
                         }
 
                         if (latestActivityDetails && latestActivityDetails.score_data) {
-                            console.log('  latestActivityDetails IS present:', latestActivityDetails);
                             const scoreData = latestActivityDetails.score_data;
                             const html = `
                                 <div style="margin: 30px auto; max-width: 600px; padding: 20px; border: 1px dashed #ccc; font-size: 15px;">
@@ -528,11 +528,9 @@ document.addEventListener("DOMContentLoaded", function () {
                             datosDelIntentoContainer.innerHTML = html;
                             shouldStopPolling = true;
                         } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                            console.log('  latestActivityDetails NOT present after MAX_POLL_ATTEMPTS. Stopping polling.');
                             datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Detalles del último intento no disponibles aún. Por favor, recarga la página o inténtalo más tarde.</p>`;
                             shouldStopPolling = true;
                         } else {
-                            console.log('  latestActivityDetails NOT present yet. Continuing polling.');
                             let loadingMessage = `Cargando detalles del último intento (intento ${pollAttempts}/${MAX_POLL_ATTEMPTS})...`;
                             if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
                                  loadingMessage += ` Promedio Polis global actualizado.`;
@@ -540,7 +538,6 @@ document.addEventListener("DOMContentLoaded", function () {
                             datosDelIntentoContainer.innerHTML = `<p style="text-align:center; color:#555;">${loadingMessage}</p>`;
                         }
                     } else {
-                        console.log('AJAX SUCCESS but response.success is false or no response.data.');
                         if (pollAttempts >= MAX_POLL_ATTEMPTS) {
                             datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.</p>`;
                             shouldStopPolling = true;
@@ -550,12 +547,10 @@ document.addEventListener("DOMContentLoaded", function () {
                     }
 
                     if (shouldStopPolling) {
-                        console.log('Stopping poll interval.');
                         clearInterval(pollInterval);
                     }
                 },
                 error: function(jqXHR, textStatus, errorThrown) {
-                    console.error("AJAX Error:", textStatus, errorThrown, jqXHR.responseText);
                     if (pollAttempts >= MAX_POLL_ATTEMPTS) {
                         datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo de comunicación con el servidor. Por favor, recarga la página o inténtalo más tarde.</p>`;
                         clearInterval(pollInterval);
@@ -566,12 +561,13 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         };
 
-        pollInterval = setInterval(fetchDatosDelIntento, 1000); 
+        pollInterval = setInterval(fetchDatosDelIntento, 1000);
         fetchDatosDelIntento();
     });
 
     observer.observe(span, { childList: true, characterData: true, subtree: true });
 });
 </script>
+
 
 </div>

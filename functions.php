@@ -687,17 +687,23 @@ function politeia_get_latest_quiz_activity() {
     // --- Fetch specific details for the CURRENT USER'S LATEST attempt on THIS quiz (for "Datos del Intento" box) ---
     $current_user_latest_activity_data = null;
     $user_specific_main_activity = $wpdb->get_row( $wpdb->prepare(
-        "SELECT activity_id, activity_started, activity_completed
-         FROM {$wpdb->prefix}learndash_user_activity
-         WHERE user_id = %d
-           AND post_id = %d
-           AND activity_type = 'quiz'
-           AND activity_completed IS NOT NULL
-         ORDER BY activity_id DESC
-         LIMIT 1",
+        "
+        SELECT ua.activity_id, ua.activity_started, ua.activity_completed
+          FROM {$wpdb->prefix}learndash_user_activity AS ua
+          INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS uam
+            ON ua.activity_id = uam.activity_id
+         WHERE ua.user_id = %d
+           AND ua.activity_type = 'quiz'
+           AND ua.activity_completed IS NOT NULL
+           AND uam.activity_meta_key = 'quiz'
+           AND uam.activity_meta_value+0 = %d
+         ORDER BY ua.activity_id DESC
+         LIMIT 1
+        ",
         $current_user_id,
         $current_quiz_post_id
     ) );
+    
 
     if ($user_specific_main_activity) {
         error_log( 'AJAX Debug: User-specific latest main activity found ID: ' . $user_specific_main_activity->activity_id );
