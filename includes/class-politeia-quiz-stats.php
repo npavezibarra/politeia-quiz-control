@@ -306,13 +306,6 @@ class PoliteiaCourse {
             return (int) $course_id;
         }
 
-        if ( function_exists( 'learndash_get_course_id' ) ) {
-            $course_id = (int) learndash_get_course_id( $quiz_id );
-            if ( $course_id ) {
-                return $course_id;
-            }
-        }
-
         return 0;
     }
 

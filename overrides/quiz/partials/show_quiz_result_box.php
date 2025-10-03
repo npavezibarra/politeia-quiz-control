@@ -109,21 +109,21 @@ $course_id = $analytics
     ? $analytics->getCourseId()
     : PoliteiaCourse::getCourseFromQuiz( (int) $quiz_id );
 
-$course         = $course_id ? new PoliteiaCourse( $course_id ) : null;
-$first_quiz_id  = $analytics && $analytics->getFirstQuizId()
+$course            = $course_id ? new PoliteiaCourse( $course_id ) : null;
+$first_quiz_id     = $analytics && $analytics->getFirstQuizId()
     ? $analytics->getFirstQuizId()
     : ( $course_id ? PoliteiaCourse::getFirstQuizId( $course_id ) : 0 );
-$final_quiz_id  = $analytics && $analytics->getFinalQuizId()
+$final_quiz_id     = $analytics && $analytics->getFinalQuizId()
     ? $analytics->getFinalQuizId()
     : ( $course_id ? PoliteiaCourse::getFinalQuizId( $course_id ) : 0 );
-$is_first_quiz  = $first_quiz_id && (int) $first_quiz_id === (int) $quiz_id;
-$is_final_quiz  = $final_quiz_id && (int) $final_quiz_id === (int) $quiz_id;
-
-$course_title         = $course ? $course->getTitle() : '';
-$course_url           = $course_id ? get_permalink( $course_id ) : '';
-$courses_listing_url  = home_url( '/courses/' );
-$related_product_id   = $course ? $course->getRelatedProductId() : 0;
-$product_url          = $related_product_id ? get_permalink( $related_product_id ) : '';
+$is_first_quiz     = $first_quiz_id && (int) $first_quiz_id === (int) $quiz_id;
+$is_final_quiz     = $final_quiz_id && (int) $final_quiz_id === (int) $quiz_id;
+$course_title      = $course ? $course->getTitle() : '';
+$course_url        = $course_id ? get_permalink( $course_id ) : '';
+$course_summary_url = $course_url;
+$courses_listing_url = home_url( '/courses/' );
+$related_product_id  = $course ? $course->getRelatedProductId() : 0;
+$product_url         = $related_product_id ? get_permalink( $related_product_id ) : '';
 $user_has_course_access = $course && $current_user_id
     ? $course->isUserEnrolled( $current_user_id )
     : false;
@@ -145,6 +145,16 @@ if ( $current_user_id && $related_product_id && function_exists( 'wc_customer_bo
     }
 }
 
+$analytics_first_data = [];
+$analytics_final_data = [];
+if ( $analytics && $current_user_id ) {
+    $analytics_first_data = $analytics->getFirstQuizData( (int) $current_user_id );
+    $analytics_final_data = $analytics->getFinalQuizData( (int) $current_user_id );
+}
+
+$analytics_first_attempt = $analytics_first_data['latest_attempt'] ?? null;
+$analytics_final_attempt = $analytics_final_data['latest_attempt'] ?? null;
+
 $first_attempt_summary = null;
 $final_attempt_summary = null;
 $first_quiz_score      = 0;
@@ -153,21 +163,61 @@ $final_quiz_score      = 0;
 if ( $current_user_id && class_exists( 'Politeia_Quiz_Stats' ) ) {
     if ( $first_quiz_id ) {
         $first_attempt_summary = Politeia_Quiz_Stats::get_latest_attempt_summary( $current_user_id, $first_quiz_id );
-        if ( $first_attempt_summary ) {
-            $first_quiz_score = (int) $first_attempt_summary['percentage'];
-        }
     }
 
-    if ( $is_final_quiz ) {
-        $final_attempt_summary = Politeia_Quiz_Stats::get_latest_attempt_summary( $current_user_id, $quiz_id );
-        if ( $final_attempt_summary ) {
-            $final_quiz_score = (int) $final_attempt_summary['percentage'];
-        }
+    if ( $final_quiz_id ) {
+        $final_attempt_summary = Politeia_Quiz_Stats::get_latest_attempt_summary( $current_user_id, $final_quiz_id );
     }
 }
 
-$progress_delta         = null;
-$days_between_attempts  = null;
+if ( $first_attempt_summary ) {
+    $first_quiz_score = (int) $first_attempt_summary['percentage'];
+} elseif ( $analytics_first_attempt && isset( $analytics_first_attempt['percentage'] ) ) {
+    $first_quiz_score = (int) round( floatval( rtrim( $analytics_first_attempt['percentage'], '%' ) ) );
+}
+
+if ( $is_final_quiz && $final_attempt_summary ) {
+    $final_quiz_score = (int) $final_attempt_summary['percentage'];
+} elseif ( $analytics_final_attempt && isset( $analytics_final_attempt['percentage'] ) ) {
+    $final_quiz_score = (int) round( floatval( rtrim( $analytics_final_attempt['percentage'], '%' ) ) );
+}
+
+$blocking_notices = [];
+$info_notices      = [];
+
+if ( ! $course_id ) {
+    $blocking_notices[] = __( 'No pudimos identificar el curso asociado a este quiz. Contacta a soporte para revisarlo.', 'politeia-quiz-control' );
+}
+
+if ( $is_first_quiz && ! $first_quiz_id ) {
+    $blocking_notices[] = __( 'El curso no tiene configurado un First Quiz. Un administrador debe configurarlo.', 'politeia-quiz-control' );
+}
+
+if ( $is_final_quiz ) {
+    if ( ! $first_quiz_id ) {
+        $blocking_notices[] = __( 'Este curso no tiene asignado un First Quiz, por lo que no podemos comparar resultados.', 'politeia-quiz-control' );
+    }
+
+    if ( ! $final_quiz_id ) {
+        $blocking_notices[] = __( 'Este curso no tiene asignado un Final Quiz en la metabox correspondiente.', 'politeia-quiz-control' );
+    }
+
+    if ( $first_quiz_id && ! $first_attempt_summary ) {
+        $info_notices[] = __( 'Aún no encontramos un resultado del First Quiz para este curso. Completa el quiz inicial para desbloquear la comparación.', 'politeia-quiz-control' );
+    }
+
+    if ( $final_quiz_id && ! $final_attempt_summary ) {
+        $info_notices[] = __( 'Todavía estamos registrando tu resultado del Final Quiz. Actualiza la página en unos segundos.', 'politeia-quiz-control' );
+    }
+}
+
+if ( $is_first_quiz && $first_quiz_id && ! $first_attempt_summary ) {
+    $info_notices[] = __( 'Tu puntaje aparecerá aquí apenas el sistema confirme el intento. Si no sucede en unos minutos, refresca la página.', 'politeia-quiz-control' );
+}
+
+$progress_delta        = null;
+$days_between_attempts = null;
+
 if ( $is_final_quiz && $first_attempt_summary && $final_attempt_summary ) {
     $progress_delta = (int) $final_attempt_summary['percentage'] - (int) $first_attempt_summary['percentage'];
 
@@ -177,36 +227,54 @@ if ( $is_final_quiz && $first_attempt_summary && $final_attempt_summary ) {
     }
 }
 
-$ajax_nonce = wp_create_nonce( 'politeia_quiz_stats' );
+$ajax_nonce    = wp_create_nonce( 'politeia_quiz_stats' );
+$results_nonce = wp_create_nonce( 'politeia_course_results' );
+
+$can_render_charts = empty( $blocking_notices );
 
 $quiz_stats_bootstrap = array(
     'quizId'               => (int) $quiz_id,
     'userId'               => (int) $current_user_id,
+    'courseId'             => (int) $course_id,
+    'firstQuizId'          => (int) $first_quiz_id,
+    'finalQuizId'          => (int) $final_quiz_id,
+    'isFirstQuiz'          => (bool) $is_first_quiz,
     'isFinalQuiz'          => (bool) $is_final_quiz,
     'hasFirstQuiz'         => (bool) $first_quiz_id,
+    'hasFinalQuiz'         => (bool) $final_quiz_id,
     'firstQuizScore'       => (int) $first_quiz_score,
     'finalQuizStoredScore' => (int) $final_quiz_score,
     'hasFinalScore'        => (bool) $final_attempt_summary,
+    'firstAttemptFound'    => (bool) $first_attempt_summary,
+    'finalAttemptFound'    => (bool) $final_attempt_summary,
     'progressDelta'        => null === $progress_delta ? null : (int) $progress_delta,
     'daysBetweenAttempts'  => null === $days_between_attempts ? null : (int) $days_between_attempts,
     'firstQuizCompleted'   => $first_attempt_summary['completed'] ?? '',
     'finalQuizCompleted'   => $final_attempt_summary['completed'] ?? '',
+    'firstQuizCompletedTs' => $first_attempt_summary['completed_timestamp'] ?? 0,
+    'finalQuizCompletedTs' => $final_attempt_summary['completed_timestamp'] ?? 0,
     'ajaxUrl'              => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
     'nonce'                => $ajax_nonce,
+    'resultsNonce'         => $results_nonce,
     'courseUrl'            => $course_url ? esc_url_raw( $course_url ) : '',
+    'courseSummaryUrl'     => $course_summary_url ? esc_url_raw( $course_summary_url ) : '',
     'productUrl'           => $product_url ? esc_url_raw( $product_url ) : '',
     'coursesListingUrl'    => esc_url_raw( $courses_listing_url ),
     'courseTitle'          => $course_title ? wp_strip_all_tags( $course_title ) : '',
     'hasCourseAccess'      => (bool) $user_has_course_access,
     'hasPurchased'         => (bool) $has_bought,
+    'blockingNotices'      => $blocking_notices,
+    'infoNotices'          => $info_notices,
+    'canRenderCharts'      => (bool) $can_render_charts,
 );
 
 $quiz_stats_bootstrap_json = wp_json_encode( $quiz_stats_bootstrap );
-$cta_data_context         = $is_final_quiz ? 'final' : 'first';
-$cta_course_url_attr      = $course_url ? esc_url( $course_url ) : '';
-$cta_product_url_attr     = $product_url ? esc_url( $product_url ) : '';
-$cta_courses_listing_attr = esc_url( $courses_listing_url );
-$cta_course_title_attr    = $course_title ? esc_attr( $course_title ) : '';
+$cta_data_context          = $is_final_quiz ? 'final' : 'first';
+$cta_course_url_attr       = $course_url ? esc_url( $course_url ) : '';
+$cta_product_url_attr      = $product_url ? esc_url( $product_url ) : '';
+$cta_courses_listing_attr  = esc_url( $courses_listing_url );
+$cta_course_title_attr     = $course_title ? esc_attr( $course_title ) : '';
+$cta_summary_url_attr      = $course_summary_url ? esc_url( $course_summary_url ) : '';
 
 ?>
 
@@ -229,6 +297,41 @@ $cta_course_title_attr    = $course_title ? esc_attr( $course_title ) : '';
     display: inline-block;
     text-decoration: none;
     border-radius: 4px;
+}
+
+.politeia-quiz-messages {
+    margin: 20px auto 0;
+    max-width: 640px;
+    background: #fff7e6;
+    border: 1px solid #f2c97d;
+    padding: 16px 20px;
+    border-radius: 6px;
+    color: #8a6d3b;
+    font-size: 14px;
+    display: none;
+}
+
+.politeia-quiz-messages ul {
+    margin: 0;
+    padding-left: 18px;
+    text-align: left;
+}
+
+.politeia-results-trigger {
+    margin: 25px auto 0;
+    text-align: center;
+    display: none;
+}
+
+.politeia-results-trigger .button {
+    background: #1d4ed8;
+    color: #fff;
+    padding: 10px 24px;
+    border-radius: 4px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .politeia-quiz-encouragement {
@@ -349,6 +452,14 @@ $cta_course_title_attr    = $course_title ? esc_attr( $course_title ) : '';
         </ul>
     </div>
 
+    <div id="quiz-messages" class="politeia-quiz-messages"></div>
+
+    <?php if ( $is_final_quiz ) : ?>
+        <div id="politeia-results-trigger" class="politeia-results-trigger">
+            <button type="button" id="politeia-results-button" class="button"><?php esc_html_e( 'View Results', 'politeia-quiz-control' ); ?></button>
+        </div>
+    <?php endif; ?>
+
     <div id="quiz-comparison-panel" class="politeia-quiz-comparison" style="display:none;"></div>
 
     <div id="quiz-encouragement" class="politeia-quiz-encouragement" style="display:none;"></div>
@@ -357,7 +468,9 @@ $cta_course_title_attr    = $course_title ? esc_attr( $course_title ) : '';
         id="quiz-cta-container"
         class="politeia-quiz-cta"
         data-context="<?php echo esc_attr( $cta_data_context ); ?>"
+        data-course-id="<?php echo (int) $course_id; ?>"
         data-course-url="<?php echo esc_attr( $cta_course_url_attr ); ?>"
+        data-summary-url="<?php echo esc_attr( $cta_summary_url_attr ); ?>"
         data-product-url="<?php echo esc_attr( $cta_product_url_attr ); ?>"
         data-courses-listing-url="<?php echo esc_attr( $cta_courses_listing_attr ); ?>"
         data-course-title="<?php echo $cta_course_title_attr; ?>"
@@ -458,21 +571,8 @@ $cta_course_title_attr    = $course_title ? esc_attr( $course_title ) : '';
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+
     const pointsMessage = document.querySelector('.wpProQuiz_points.wpProQuiz_points--message');
-    if (!pointsMessage) {
-        return;
-    }
-
-    const resultSpans = pointsMessage.querySelectorAll('span');
-    if (!resultSpans.length) {
-        return;
-    }
-
-    const percentageSpan = resultSpans[2];
-    if (!percentageSpan) {
-        return;
-    }
-
     const chartContainer = document.querySelector('#radial-chart');
     const chartContainerPromedio = document.querySelector('#radial-chart-promedio');
     const datosDelIntentoContainer = document.getElementById('datos-del-intento-container');
@@ -481,10 +581,18 @@ document.addEventListener('DOMContentLoaded', function () {
     const encouragementContainer = document.getElementById('quiz-encouragement');
     const ctaContainer = document.getElementById('quiz-cta-container');
     const scoreDiv = document.getElementById('score');
+    const messagesContainer = document.getElementById('quiz-messages');
+    const resultsTrigger = document.getElementById('politeia-results-trigger');
+    const resultsButton = document.getElementById('politeia-results-button');
+    const resultsModal = document.getElementById('politeia-results-modal');
+    const resultsModalBody = resultsModal ? resultsModal.querySelector('.politeia-results-modal__body') : null;
+    const modalCloseTriggers = resultsModal ? resultsModal.querySelectorAll('[data-close-modal]') : [];
 
     const quizStatsBootstrap = <?php echo $quiz_stats_bootstrap_json ? $quiz_stats_bootstrap_json : '{}'; ?> || {};
     const isFinalQuiz = !!quizStatsBootstrap.isFinalQuiz;
+    const isFirstQuiz = !!quizStatsBootstrap.isFirstQuiz;
     const hasFirstQuiz = !!quizStatsBootstrap.hasFirstQuiz;
+    const hasFinalQuiz = !!quizStatsBootstrap.hasFinalQuiz;
     const firstQuizScore = Number(quizStatsBootstrap.firstQuizScore || 0);
     const storedFinalScore = Number(quizStatsBootstrap.finalQuizStoredScore || 0);
     const hasFinalScore = !!quizStatsBootstrap.hasFinalScore;
@@ -493,6 +601,14 @@ document.addEventListener('DOMContentLoaded', function () {
     const currentQuizId = Number(quizStatsBootstrap.quizId || <?php echo (int) $quiz_id; ?>);
     const currentUserId = Number(quizStatsBootstrap.userId || 0);
     const ajaxNonce = quizStatsBootstrap.nonce || '';
+    const resultsNonce = quizStatsBootstrap.resultsNonce || '';
+    const courseSummaryUrl = quizStatsBootstrap.courseSummaryUrl || '';
+    const courseId = Number(quizStatsBootstrap.courseId || 0);
+    const firstAttemptFound = !!quizStatsBootstrap.firstAttemptFound;
+    const finalAttemptFound = !!quizStatsBootstrap.finalAttemptFound;
+    const blockingNotices = Array.isArray(quizStatsBootstrap.blockingNotices) ? quizStatsBootstrap.blockingNotices : [];
+    const infoNotices = Array.isArray(quizStatsBootstrap.infoNotices) ? quizStatsBootstrap.infoNotices : [];
+    const canRenderCharts = quizStatsBootstrap.canRenderCharts !== false;
     const firstQuizCompleted = quizStatsBootstrap.firstQuizCompleted || '';
     const finalQuizCompleted = quizStatsBootstrap.finalQuizCompleted || '';
     const baseDaysBetween = typeof quizStatsBootstrap.daysBetweenAttempts === 'number'
@@ -503,9 +619,49 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let FinalScore = storedFinalScore;
     let FirstScore = firstQuizScore;
+    let finalAttemptSeen = finalAttemptFound;
+    let firstAttemptSeen = firstAttemptFound;
 
     let radialChartInstance = null;
     let radialChartPromedioInstance = null;
+
+    FirstScore = Number.isFinite(FirstScore) ? FirstScore : 0;
+    FinalScore = Number.isFinite(FinalScore) ? FinalScore : 0;
+
+    renderMessages();
+    toggleResultsTrigger();
+
+    if (!canRenderCharts) {
+        if (ctaContainer) {
+            ctaContainer.innerHTML = '';
+            ctaContainer.style.display = 'none';
+        }
+        if (comparisonPanel) {
+            comparisonPanel.innerHTML = '';
+            comparisonPanel.style.display = 'none';
+        }
+        if (encouragementContainer) {
+            encouragementContainer.innerHTML = '';
+            encouragementContainer.style.display = 'none';
+        }
+        if (resultsTrigger) {
+            resultsTrigger.style.display = 'none';
+        }
+        if (scoreDiv) {
+            scoreDiv.innerHTML = '';
+        }
+        return;
+    }
+
+    const resultSpans = pointsMessage ? pointsMessage.querySelectorAll('span') : [];
+    if (!pointsMessage || !resultSpans.length) {
+        return;
+    }
+
+    const percentageSpan = resultSpans[2] || null;
+    if (!percentageSpan) {
+        return;
+    }
 
     function buildChartOptions(value, labelText) {
         return {
@@ -560,6 +716,22 @@ document.addEventListener('DOMContentLoaded', function () {
         return instance;
     }
 
+    function escapeHtml(value) {
+        if (typeof value !== 'string') {
+            return '';
+        }
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return value.replace(/[&<>"']/g, function (char) {
+            return map[char] || char;
+        });
+    }
+
     function formatDelta(delta) {
         return delta > 0 ? `+${delta}` : `${delta}`;
     }
@@ -577,6 +749,45 @@ document.addEventListener('DOMContentLoaded', function () {
         return `${days} días entre intentos`;
     }
 
+    function renderMessages() {
+        if (!messagesContainer) {
+            return;
+        }
+
+        const sections = [];
+
+        if (blockingNotices.length) {
+            const list = blockingNotices.map(msg => `<li>${escapeHtml(msg)}</li>`).join('');
+            sections.push(`<strong>Atención:</strong><ul>${list}</ul>`);
+        }
+
+        if (infoNotices.length) {
+            const list = infoNotices.map(msg => `<li>${escapeHtml(msg)}</li>`).join('');
+            sections.push(`<strong>Nota:</strong><ul>${list}</ul>`);
+        }
+
+        if (!sections.length) {
+            messagesContainer.innerHTML = '';
+            messagesContainer.style.display = 'none';
+            return;
+        }
+
+        messagesContainer.innerHTML = sections.join('<hr style="border:none;border-top:1px solid #f5d69c;margin:12px 0;" />');
+        messagesContainer.style.display = 'block';
+    }
+
+    function toggleResultsTrigger() {
+        if (!resultsTrigger) {
+            return;
+        }
+
+        if (isFinalQuiz && firstAttemptSeen && finalAttemptSeen) {
+            resultsTrigger.style.display = 'block';
+        } else {
+            resultsTrigger.style.display = 'none';
+        }
+    }
+
     function updateScoreContent(finalScore) {
         if (!scoreDiv) {
             return;
@@ -587,14 +798,16 @@ document.addEventListener('DOMContentLoaded', function () {
             let heading = '¡Felicitaciones por completar el curso!';
             let paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong>.`;
 
-            if (hasFirstQuiz && delta !== null) {
+            if (hasFirstQuiz && firstAttemptSeen && delta !== null) {
                 if (delta > 0) {
-                    paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong> y mejoraste ${formatDelta(delta)} puntos desde tu primer intento.`;
+                    paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong> y mejoraste ${formatDelta(delta)} puntos respecto del First Quiz.`;
                 } else if (delta === 0) {
                     paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong>. Mantienes un desempeño constante entre intentos.`;
                 } else {
                     paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong>. Detectamos una variación de ${formatDelta(delta)} puntos; repasar las lecciones finales puede ayudarte a reforzar lo aprendido.`;
                 }
+            } else {
+                paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong>. Revisa el resumen del curso para conocer tus siguientes pasos.`;
             }
 
             scoreDiv.innerHTML = `
@@ -604,7 +817,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             scoreDiv.innerHTML = `
                 <h2 style="text-align:center;color:#000;">Tu puntaje: ${Math.round(finalScore)}%</h2>
-                <p style="text-align:center;color:#555;font-weight:normal;">Tu resultado quedó registrado. ¡Sigue aprendiendo!</p>
+                <p style="text-align:center;color:#555;font-weight:normal;">Tu resultado quedó registrado. Continúa con las lecciones del curso para aprovechar este impulso.</p>
             `;
         }
     }
@@ -616,7 +829,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         let message = '';
         if (isFinalQuiz) {
-            if (hasFirstQuiz) {
+            if (hasFirstQuiz && firstAttemptSeen) {
                 const delta = Math.round(finalScore - FirstScore);
                 if (delta > 0) {
                     message = `Mejoraste ${formatDelta(delta)} puntos desde tu primer intento. Celebra el avance y comparte tu logro.`;
@@ -626,7 +839,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     message = `Hubo una variación de ${formatDelta(delta)} puntos. Repasa las lecciones clave para reforzar tu conocimiento.`;
                 }
             } else {
-                message = '¡Excelente cierre! Aprovecha el contenido complementario del curso para seguir profundizando.';
+                message = 'Consulta el resumen del curso y comparte tu logro con tu comunidad.';
             }
         } else {
             if (finalScore >= 90) {
@@ -654,6 +867,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const context = ctaContainer.dataset.context || 'first';
         const courseUrl = ctaContainer.dataset.courseUrl || '';
+        const summaryUrl = ctaContainer.dataset.summaryUrl || '';
         const productUrl = ctaContainer.dataset.productUrl || '';
         const listingUrl = ctaContainer.dataset.coursesListingUrl || '';
         const hasAccess = ctaContainer.dataset.hasAccess === '1';
@@ -665,29 +879,34 @@ document.addEventListener('DOMContentLoaded', function () {
         let helper = '';
 
         if (context === 'final') {
-            href = courseUrl || listingUrl || '#';
-            if (courseUrl && hasAccess) {
+            if (summaryUrl) {
+                href = summaryUrl;
+                label = 'Ver resumen del curso';
+                helper = 'Consulta tu avance final y descubre los próximos pasos.';
+            } else if (courseUrl && (hasAccess || hasPurchased)) {
+                href = courseUrl;
                 label = 'Volver al curso';
-                helper = 'Revisa los recursos finales y comparte tu certificado.';
+                helper = 'Revisa el material complementario y celebra tu logro.';
             } else {
+                href = listingUrl || courseUrl || '#';
                 label = 'Explorar más cursos';
                 helper = 'Continúa tu camino de aprendizaje con nuevas rutas recomendadas.';
             }
         } else {
-            if (hasAccess || hasPurchased || !productUrl) {
+            if (hasAccess || hasPurchased) {
                 href = courseUrl || listingUrl || '#';
                 label = courseUrl ? 'Ir al curso' : 'Explorar cursos';
                 helper = title ? `Ingresa a ${title} y continúa tu avance.` : 'Ingresa al curso para continuar tu progreso.';
-            } else {
+            } else if (productUrl) {
                 href = productUrl;
                 label = 'Comprar el curso';
-                if (finalScore >= 80) {
-                    helper = 'Aprovecha tu impulso y desbloquea todas las lecciones y evaluaciones.';
-                } else if (finalScore >= 60) {
-                    helper = 'Refuerza los temas clave con acceso completo al contenido del curso.';
-                } else {
-                    helper = 'Obtén el curso completo y avanza con acompañamiento paso a paso.';
-                }
+                helper = finalScore >= 70
+                    ? 'Aprovecha el impulso y desbloquea todas las lecciones.'
+                    : 'Inscríbete para acceder a las lecciones guiadas y mejorar tu puntaje.';
+            } else {
+                href = listingUrl || '#';
+                label = 'Explorar cursos';
+                helper = 'Conoce nuestras rutas de aprendizaje y continúa mejorando.';
             }
         }
 
@@ -709,9 +928,27 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        if (!isFinalQuiz || !hasFirstQuiz) {
+        if (!isFinalQuiz) {
             comparisonPanel.innerHTML = '';
             comparisonPanel.style.display = 'none';
+            return;
+        }
+
+        if (!hasFirstQuiz) {
+            comparisonPanel.innerHTML = '<p style="text-align:center;color:#555;">Este curso no tiene configurado un First Quiz para comparar resultados.</p>';
+            comparisonPanel.style.display = 'block';
+            return;
+        }
+
+        if (!firstAttemptSeen) {
+            comparisonPanel.innerHTML = '<p style="text-align:center;color:#555;">Completa el First Quiz para desbloquear la comparación de resultados.</p>';
+            comparisonPanel.style.display = 'block';
+            return;
+        }
+
+        if (!finalAttemptSeen) {
+            comparisonPanel.innerHTML = '<p style="text-align:center;color:#555;">Estamos registrando tu resultado final. Actualiza la página en unos instantes.</p>';
+            comparisonPanel.style.display = 'block';
             return;
         }
 
@@ -742,12 +979,24 @@ document.addEventListener('DOMContentLoaded', function () {
         comparisonPanel.style.display = 'block';
     }
 
+
     function hydrateInterface(finalScore) {
         FinalScore = Math.max(0, Math.round(finalScore));
+
+        if (isFirstQuiz) {
+            firstAttemptSeen = true;
+            FirstScore = FinalScore;
+        }
+
+        if (isFinalQuiz) {
+            finalAttemptSeen = true;
+        }
+
         updateScoreContent(FinalScore);
         renderEncouragement(FinalScore);
         renderCTA(FinalScore);
         renderComparison(FinalScore);
+        toggleResultsTrigger();
 
         radialChartInstance = ensureChart(
             radialChartInstance,
@@ -813,7 +1062,169 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+
+    function setModalContent(html) {
+        if (!resultsModalBody) {
+            return;
+        }
+        resultsModalBody.innerHTML = html;
+    }
+
+    function renderModalMessagesSection(messages) {
+        if (!Array.isArray(messages) || !messages.length) {
+            return '';
+        }
+        const items = messages.map(msg => `<p>${escapeHtml(msg)}</p>`).join('');
+        return `<div class="politeia-results-messages">${items}</div>`;
+    }
+
+    function renderModalResults(data) {
+        if (!resultsModalBody) {
+            return;
+        }
+
+        const firstSummary = data && data.first_quiz ? data.first_quiz.summary : null;
+        const finalSummary = data && data.final_quiz ? data.final_quiz.summary : null;
+
+        if (!firstSummary || !finalSummary) {
+            const fallback = data && data.messages ? renderModalMessagesSection(data.messages) : '';
+            setModalContent(`<p style="text-align:center;color:#555;">Necesitamos ambos resultados para mostrar la comparación.</p>${fallback}`);
+            return;
+        }
+
+        const metrics = data && data.metrics ? data.metrics : {};
+        const delta = typeof metrics.score_delta === 'number' ? metrics.score_delta : null;
+        const daysCopy = typeof metrics.days_elapsed === 'number' ? describeDays(metrics.days_elapsed) : '';
+
+        const firstMeta = [];
+        if (typeof firstSummary.score === 'number' && typeof firstSummary.total_points === 'number') {
+            firstMeta.push(`${firstSummary.score} / ${firstSummary.total_points} pts`);
+        }
+        if (firstSummary.completed) {
+            firstMeta.push(escapeHtml(firstSummary.completed));
+        }
+
+        const finalMeta = [];
+        if (typeof finalSummary.score === 'number' && typeof finalSummary.total_points === 'number') {
+            finalMeta.push(`${finalSummary.score} / ${finalSummary.total_points} pts`);
+        }
+        if (finalSummary.completed) {
+            finalMeta.push(escapeHtml(finalSummary.completed));
+        }
+
+        const variationMeta = [];
+        if (daysCopy) {
+            variationMeta.push(escapeHtml(daysCopy));
+        }
+
+        const messagesHtml = renderModalMessagesSection(data && data.messages);
+
+        setModalContent(`
+            <h2 id="politeia-results-modal__title" style="margin-top:0;">Comparación de resultados</h2>
+            <div class="politeia-results-grid">
+                <div class="politeia-results-card">
+                    <strong>First Quiz</strong>
+                    <div class="politeia-results-score">${Math.round(firstSummary.percentage || 0)}%</div>
+                    ${firstMeta.length ? `<div class="politeia-results-meta">${firstMeta.join('<br>')}</div>` : ''}
+                </div>
+                <div class="politeia-results-card">
+                    <strong>Final Quiz</strong>
+                    <div class="politeia-results-score">${Math.round(finalSummary.percentage || 0)}%</div>
+                    ${finalMeta.length ? `<div class="politeia-results-meta">${finalMeta.join('<br>')}</div>` : ''}
+                </div>
+                <div class="politeia-results-card">
+                    <strong>Variación</strong>
+                    <div class="politeia-results-score">${delta === null ? '–' : `${formatDelta(delta)}%`}</div>
+                    ${variationMeta.length ? `<div class="politeia-results-meta">${variationMeta.join('<br>')}</div>` : ''}
+                </div>
+            </div>
+            ${messagesHtml}
+        `);
+    }
+
+    function openResultsModal() {
+        if (!resultsModal) {
+            return;
+        }
+        resultsModal.classList.add('is-open');
+        resultsModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeResultsModal() {
+        if (!resultsModal) {
+            return;
+        }
+        resultsModal.classList.remove('is-open');
+        resultsModal.setAttribute('aria-hidden', 'true');
+    }
+
+    function fetchComparisonData() {
+        if (!ajaxUrl) {
+            setModalContent('<p style="text-align:center;color:#c0392b;">No pudimos conectar con el servidor.</p>');
+            return;
+        }
+        if (!resultsNonce || !courseId) {
+            setModalContent('<p style="text-align:center;color:#c0392b;">Faltan datos para mostrar los resultados del curso.</p>');
+            return;
+        }
+
+        setModalContent('<div class="politeia-results-modal__loading">Cargando resultados…</div>');
+
+        jQuery.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                action: 'mostrar_resultados_curso',
+                nonce: resultsNonce,
+                course_id: courseId,
+                first_quiz_id: Number(quizStatsBootstrap.firstQuizId || 0),
+                final_quiz_id: Number(quizStatsBootstrap.finalQuizId || 0)
+            },
+            success: function (response) {
+                if (response.success && response.data) {
+                    renderModalResults(response.data);
+                } else {
+                    const message = response && response.data && response.data.message
+                        ? escapeHtml(response.data.message)
+                        : 'No pudimos obtener los resultados del curso.';
+                    const extra = response && response.data ? renderModalMessagesSection(response.data.messages) : '';
+                    setModalContent(`<p style="text-align:center;color:#c0392b;">${message}</p>${extra}`);
+                }
+            },
+            error: function () {
+                setModalContent('<p style="text-align:center;color:#c0392b;">Ocurrió un problema al consultar los resultados.</p>');
+            }
+        });
+    }
+
+    if (resultsButton) {
+        resultsButton.addEventListener('click', function () {
+            openResultsModal();
+            fetchComparisonData();
+        });
+    }
+
+    modalCloseTriggers.forEach(function (trigger) {
+        trigger.addEventListener('click', closeResultsModal);
+    });
+
+    if (resultsModal) {
+        resultsModal.addEventListener('click', function (event) {
+            if (event.target === resultsModal) {
+                closeResultsModal();
+            }
+        });
+    }
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            closeResultsModal();
+        }
+    });
+
     const observer = new MutationObserver(function () {
+
         const percentageText = percentageSpan.innerText.replace('%', '').trim();
         const percentage = parseFloat(percentageText);
         if (isNaN(percentage)) {
@@ -941,5 +1352,13 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+<?php
+$politeia_modal_path = defined( 'PQC_PLUGIN_DIR' )
+    ? PQC_PLUGIN_DIR . 'partials/ajax-results-box.php'
+    : dirname( __DIR__, 3 ) . '/partials/ajax-results-box.php';
+if ( file_exists( $politeia_modal_path ) ) {
+    include $politeia_modal_path;
+}
+?>
 
 </div>

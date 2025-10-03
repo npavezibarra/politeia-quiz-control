@@ -800,6 +800,101 @@ add_action( 'woocommerce_before_checkout_form', 'bfg_validar_y_avisar_compra_dup
 add_action( 'woocommerce_before_cart', 'bfg_validar_y_avisar_compra_duplicada', 1 );
 
 
+function politeia_ajax_mostrar_resultados_curso() {
+    if ( empty( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['nonce'] ) ), 'politeia_course_results' ) ) {
+        wp_send_json_error( array(
+            'message' => __( 'Solicitud no autorizada.', 'politeia-quiz-control' ),
+        ) );
+    }
+
+    if ( ! is_user_logged_in() ) {
+        wp_send_json_error( array(
+            'message' => __( 'Inicia sesión para revisar tus resultados.', 'politeia-quiz-control' ),
+        ) );
+    }
+
+    $course_id = isset( $_POST['course_id'] ) ? absint( wp_unslash( $_POST['course_id'] ) ) : 0;
+    $user_id   = get_current_user_id();
+
+    if ( ! $course_id || ! $user_id ) {
+        wp_send_json_error( array(
+            'message' => __( 'No pudimos identificar el curso solicitado.', 'politeia-quiz-control' ),
+        ) );
+    }
+
+    $first_quiz_id = isset( $_POST['first_quiz_id'] ) ? absint( wp_unslash( $_POST['first_quiz_id'] ) ) : 0;
+    $final_quiz_id = isset( $_POST['final_quiz_id'] ) ? absint( wp_unslash( $_POST['final_quiz_id'] ) ) : 0;
+
+    if ( ! $first_quiz_id ) {
+        $first_quiz_id = class_exists( 'PoliteiaCourse' ) ? PoliteiaCourse::getFirstQuizId( $course_id ) : 0;
+    }
+
+    if ( ! $final_quiz_id ) {
+        $final_quiz_id = class_exists( 'PoliteiaCourse' ) ? PoliteiaCourse::getFinalQuizId( $course_id ) : 0;
+    }
+
+    $messages = array();
+
+    if ( ! $first_quiz_id ) {
+        $messages[] = __( 'No encontramos un First Quiz configurado para este curso.', 'politeia-quiz-control' );
+    }
+
+    if ( ! $final_quiz_id ) {
+        $messages[] = __( 'No encontramos un Final Quiz configurado para este curso.', 'politeia-quiz-control' );
+    }
+
+    $first_summary = null;
+    $final_summary = null;
+
+    if ( $first_quiz_id && class_exists( 'Politeia_Quiz_Stats' ) ) {
+        $first_summary = Politeia_Quiz_Stats::get_latest_attempt_summary( $user_id, $first_quiz_id );
+        if ( ! $first_summary ) {
+            $messages[] = __( 'Aún no registramos un resultado del First Quiz para este curso.', 'politeia-quiz-control' );
+        }
+    }
+
+    if ( $final_quiz_id && class_exists( 'Politeia_Quiz_Stats' ) ) {
+        $final_summary = Politeia_Quiz_Stats::get_latest_attempt_summary( $user_id, $final_quiz_id );
+        if ( ! $final_summary ) {
+            $messages[] = __( 'Aún no registramos un resultado del Final Quiz.', 'politeia-quiz-control' );
+        }
+    }
+
+    $delta        = null;
+    $days_elapsed = null;
+
+    if ( $first_summary && $final_summary ) {
+        $delta = (int) $final_summary['percentage'] - (int) $first_summary['percentage'];
+
+        if ( ! empty( $first_summary['completed_timestamp'] ) && ! empty( $final_summary['completed_timestamp'] ) ) {
+            $seconds_diff = max( 0, (int) $final_summary['completed_timestamp'] - (int) $first_summary['completed_timestamp'] );
+            $days_elapsed = (int) floor( $seconds_diff / DAY_IN_SECONDS );
+        }
+    }
+
+    $response = array(
+        'course_id' => $course_id,
+        'first_quiz' => array(
+            'quiz_id' => $first_quiz_id,
+            'summary' => $first_summary,
+        ),
+        'final_quiz' => array(
+            'quiz_id' => $final_quiz_id,
+            'summary' => $final_summary,
+        ),
+        'metrics' => array(
+            'score_delta' => $delta,
+            'days_elapsed' => $days_elapsed,
+        ),
+        'messages' => $messages,
+    );
+
+    wp_send_json_success( $response );
+}
+
+add_action( 'wp_ajax_mostrar_resultados_curso', 'politeia_ajax_mostrar_resultados_curso' );
+add_action( 'wp_ajax_nopriv_mostrar_resultados_curso', 'politeia_ajax_mostrar_resultados_curso' );
+
 /* FUNCION AJAX */
 
 
