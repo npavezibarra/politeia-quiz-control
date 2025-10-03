@@ -24,4 +24,19 @@
   .select2-selection--single {
     height: 32px;
   }
+
+  /* Mostrar el editor de bloques sólo en la pestaña "Página Curso" */
+  body.post-type-sfwd-courses.pqc-course-page-tab-hidden #editor,
+  body.post-type-sfwd-courses.pqc-course-page-tab-hidden .interface-interface-skeleton,
+  body.post-type-sfwd-courses.pqc-course-page-tab-hidden #postdivrich {
+    display: none !important;
+  }
+
+  body.post-type-sfwd-courses.pqc-course-page-tab-hidden .editor-post-title__block,
+  body.post-type-sfwd-courses.pqc-course-page-tab-hidden .edit-post-header,
+  body.post-type-sfwd-courses.pqc-course-page-tab-hidden .edit-post-sidebar,
+  body.post-type-sfwd-courses.pqc-course-page-tab-hidden .interface-interface-skeleton__sidebar,
+  body.post-type-sfwd-courses.pqc-course-page-tab-hidden .edit-post-layout {
+    display: none !important;
+  }
   
