@@ -108,6 +108,23 @@ function politeia_override_single_course_template_file( $template ) {
 add_filter( 'template_include', 'politeia_override_single_course_template_file', 99 );
 
 
+/**
+ * Override the LearnDash course archive so custom quiz CTAs can use metadata driven quiz IDs.
+ */
+function politeia_override_course_archive_template( $template ) {
+    if ( is_post_type_archive( 'sfwd-courses' ) ) {
+        $new_template = __DIR__ . '/templates/archive-sfwd-courses.php';
+
+        if ( file_exists( $new_template ) ) {
+            return $new_template;
+        }
+    }
+
+    return $template;
+}
+add_filter( 'template_include', 'politeia_override_course_archive_template', 99 );
+
+
 /* OVERWRITE QUIZ RESULT */
 
 add_filter( 'learndash_template', 'politeia_override_show_quiz_result_box', 10, 5 );

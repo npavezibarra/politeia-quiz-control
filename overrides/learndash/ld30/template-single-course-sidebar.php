@@ -159,48 +159,48 @@ if ( 0 < $progress['percentage'] && 100 !== $progress['percentage'] ) {
                     $login_model = LearnDash_Settings_Section::get_section_setting( 'LearnDash_Settings_Theme_LD30', 'login_mode_enabled' );
                     $login_url   = apply_filters( 'learndash_login_url', ( $login_model === 'yes' ? '#login' : wp_login_url( get_the_permalink( $course_id ) ) ) );
 
-                    // --- START: Lógica para verificar orden en espera y ocultar botón ---
-                    $hide_enroll_button = false;
-                    $product_id_for_course = null;
+                    // ——— START CUSTOM BUTTON LOGIC (BASED ON DIAGRAM AND CLARIFICATIONS) ———
 
-                    // Verifica si las clases personalizadas existen para evitar errores fatales.
-                    if ( class_exists( 'PoliteiaCourse' ) && class_exists( 'PoliteiaOrderFinder' ) ) {
-                        $course_object = new PoliteiaCourse( $course_id );
-                        $product_id_for_course = $course_object->getRelatedProductId();
+                    // IDs básicos para Quizzes y producto relacionado
+                    $course_entity = class_exists( 'PoliteiaCourse' )
+                        ? new PoliteiaCourse( (int) $course_id )
+                        : null;
 
-                        if ($product_id_for_course) {
-                            $order_finder  = new PoliteiaOrderFinder();
-                            $order_id      = $order_finder->findOrderForUser( $current_user_id, $product_id_for_course );
+                    $first_quiz_id = $course_entity
+                        ? $course_entity->getFirstQuizId()
+                        : (int) get_post_meta( $course_id, '_first_quiz_id', true );
+                    $final_quiz_id = $course_entity
+                        ? $course_entity->getFinalQuizId()
+                        : (int) get_post_meta( $course_id, '_final_quiz_id', true );
 
-                            if ( $order_id ) {
-                                $order = wc_get_order( $order_id );
+                    // URLs para Quizzes
+                    $first_quiz_url = $first_quiz_id ? get_permalink( $first_quiz_id ) : '';
+                    $final_quiz_url = $final_quiz_id ? get_permalink( $final_quiz_id ) : '';
 
-                                // Si la orden existe y tiene el estado 'course-on-hold', marcamos que el botón debe ocultarse.
-                                if ( $order && $order->has_status( 'course-on-hold' ) ) {
-                                    $hide_enroll_button = true;
+                    $related_product_id = $course_entity ? $course_entity->getRelatedProductId() : 0;
+                    $product_url        = $related_product_id ? get_permalink( $related_product_id ) : '';
+
+                    $has_completed_purchase = false;
+                    $has_course_on_hold     = false;
+                    $customer_order_id      = 0;
+
+                    if ( $current_user_id && $related_product_id && class_exists( 'PoliteiaOrderFinder' ) ) {
+                        $order_finder     = new PoliteiaOrderFinder();
+                        $customer_order_id = $order_finder->findOrderForUser( $current_user_id, $related_product_id );
+
+                        if ( $customer_order_id ) {
+                            $order = wc_get_order( $customer_order_id );
+                            if ( $order ) {
+                                if ( $order->has_status( 'course-on-hold' ) ) {
+                                    $has_course_on_hold = true;
+                                }
+
+                                if ( $order->has_status( [ 'completed', 'processing' ] ) ) {
+                                    $has_completed_purchase = true;
                                 }
                             }
                         }
                     }
-                    // --- END: Lógica para verificar orden en espera ---
-
-                    // ——— START CUSTOM BUTTON LOGIC (BASED ON DIAGRAM AND CLARIFICATIONS) ———
-
-                    // IDs básicos para Quizzes
-                    $first_quiz_id = class_exists( 'PoliteiaCourse' )
-                        ? PoliteiaCourse::getFirstQuizId( (int) $course_id )
-                        : (int) get_post_meta( $course_id, '_first_quiz_id', true );
-                    $final_quiz_id = class_exists( 'PoliteiaCourse' )
-                        ? PoliteiaCourse::getFinalQuizId( (int) $course_id )
-                        : (int) get_post_meta( $course_id, '_final_quiz_id', true );
-
-                    // URLs para Quizzes
-                    $first_quiz_url = $first_quiz_id
-                        ? home_url( '/quizzes/' . get_post_field( 'post_name', $first_quiz_id ) . '/' )
-                        : '';
-                    $final_quiz_url = $final_quiz_id
-                        ? home_url( '/quizzes/' . get_post_field( 'post_name', $final_quiz_id ) . '/' )
-                        : '';
 
                     // Intentos de Quizzes
                     $first_attempts = ( class_exists( 'Politeia_Quiz_Stats' ) && $first_quiz_id )
@@ -214,8 +214,13 @@ if ( 0 < $progress['percentage'] && 100 !== $progress['percentage'] ) {
                     $all_lessons_completed = ( isset( $progress['percentage'] ) && intval( $progress['percentage'] ) === 100 );
 
                     // Column 5: Check if both quizzes are completed (for final state)
-                    $first_quiz_completed = !empty($first_attempts) && isset(reset($first_attempts)['percentage']) && intval(reset($first_attempts)['percentage']) === 100;
-                    $final_quiz_completed = !empty($final_attempts) && isset(reset($final_attempts)['percentage']) && intval(reset($final_attempts)['percentage']) === 100;
+                    $first_quiz_completed = ! empty( $first_attempts ) && isset( reset( $first_attempts )['percentage'] ) && intval( reset( $first_attempts )['percentage'] ) === 100;
+                    $final_quiz_completed = ! empty( $final_attempts ) && isset( reset( $final_attempts )['percentage'] ) && intval( reset( $final_attempts )['percentage'] ) === 100;
+
+                    $is_paid_course         = in_array( $course_pricing['type'], [ 'paynow', 'closed', 'subscribe' ], true );
+                    $has_purchased_course   = $is_paid_course ? $has_completed_purchase : $is_enrolled;
+                    $final_quiz_lock_reason = '';
+                    $hide_enroll_button     = $has_course_on_hold;
 
 
                     // =============================================================================
@@ -356,13 +361,27 @@ if ( ! is_user_logged_in() ) {
 
         // 4.3) Final Quiz: botón o porcentaje
         if ( $final_quiz_id ) {
-            if ( ! $all_lessons_completed ) {
-                // aún no terminó lecciones
+            if ( ! $has_purchased_course ) {
+                $final_quiz_lock_reason = __( 'Purchase the course first', 'buddyboss-theme' );
                 ?>
                 <a class="btn-advance btn-advance-start ld-primary-background disabled"
-                   style="pointer-events:none;opacity:0.5;display:block;width:100%;margin-bottom:12px;">
+                   style="pointer-events:none;opacity:0.5;display:block;width:100%;margin-bottom:4px;">
                     <?php esc_html_e( 'Take Final Quiz', 'buddyboss-theme' ); ?>
                 </a>
+                <p class="quiz-status-text" style="margin-top:0;color:#666;">
+                    <?php echo esc_html( $final_quiz_lock_reason ); ?>
+                </p>
+                <?php
+            } elseif ( ! $all_lessons_completed ) {
+                $final_quiz_lock_reason = __( 'Complete all lessons to unlock the Final Quiz', 'buddyboss-theme' );
+                ?>
+                <a class="btn-advance btn-advance-start ld-primary-background disabled"
+                   style="pointer-events:none;opacity:0.5;display:block;width:100%;margin-bottom:4px;">
+                    <?php esc_html_e( 'Take Final Quiz', 'buddyboss-theme' ); ?>
+                </a>
+                <p class="quiz-status-text" style="margin-top:0;color:#666;">
+                    <?php echo esc_html( $final_quiz_lock_reason ); ?>
+                </p>
             <?php
             } elseif ( ! $final_quiz_completed ) {
                 // habilitado: aún no lo rindió
@@ -430,7 +449,17 @@ if ( ! is_user_logged_in() ) {
         } elseif ( in_array( $course_pricing['type'], [ 'closed','paynow','subscribe' ], true ) ) {
             // Solo muestra los botones de pago si nuestra bandera de "ocultar" es falsa.
             if ( ! $hide_enroll_button ) {
-                echo learndash_payment_buttons( $course );
+                if ( $product_url ) {
+                    ?>
+                    <a href="<?php echo esc_url( $product_url ); ?>"
+                       class="btn-advance ld-primary-background"
+                       style="display:block;width:100%;margin:12px 0;">
+                        <?php esc_html_e( 'Buy Course', 'buddyboss-theme' ); ?>
+                    </a>
+                    <?php
+                } else {
+                    echo learndash_payment_buttons( $course );
+                }
             }
         } else {
             ?>
@@ -439,6 +468,22 @@ if ( ! is_user_logged_in() ) {
                style="display:block;width:100%;margin:12px 0;">
                 <?php echo esc_html( $btn_advance_label ); ?>
             </a>
+            <?php
+        }
+
+        if ( $final_quiz_id ) {
+            $final_quiz_lock_reason = __( 'Purchase the course first', 'buddyboss-theme' );
+            if ( 'free' === $course_pricing['type'] ) {
+                $final_quiz_lock_reason = __( 'Enroll in the course to unlock the Final Quiz', 'buddyboss-theme' );
+            }
+            ?>
+            <a class="btn-advance btn-advance-start ld-primary-background disabled"
+               style="pointer-events:none;opacity:0.5;display:block;width:100%;margin-bottom:4px;">
+                <?php esc_html_e( 'Take Final Quiz', 'buddyboss-theme' ); ?>
+            </a>
+            <p class="quiz-status-text" style="margin-top:0;color:#666;">
+                <?php echo esc_html( $final_quiz_lock_reason ); ?>
+            </p>
             <?php
         }
     }
@@ -535,11 +580,9 @@ if ( ! is_user_logged_in() ) {
     $order_for_product  = null;
     $product_title      = null;
 
-    if ( class_exists( 'PoliteiaCourse' ) && class_exists( 'PoliteiaOrderFinder' ) ) {
-        $course_object = new PoliteiaCourse( $course_id );
-        $product_id    = $course_object->getRelatedProductId();
-        $order_finder  = new PoliteiaOrderFinder();
-        $order_id      = $order_finder->findOrderForUser( $current_user_id, $product_id );
+    if ( $related_product_id && class_exists( 'PoliteiaOrderFinder' ) ) {
+        $order_finder = new PoliteiaOrderFinder();
+        $order_id     = $order_finder->findOrderForUser( $current_user_id, $related_product_id );
 
         if ( $order_id ) {
             $order = wc_get_order( $order_id );
@@ -547,8 +590,8 @@ if ( ! is_user_logged_in() ) {
                 $order_number      = $order->get_order_number();
                 $order_for_product = $order;
                 foreach ( $order->get_items() as $item ) {
-                    if ( $item->get_product_id() == $product_id ) {
-                        $product_title = $item->get_name() . ' (' . $product_id . ')';
+                    if ( $item->get_product_id() == $related_product_id ) {
+                        $product_title = $item->get_name() . ' (' . $related_product_id . ')';
                         break;
                     }
                 }
@@ -571,7 +614,7 @@ if ( ! is_user_logged_in() ) {
     // Lógica para ocultar botón "Enroll in this course"
     if ( $order_for_product && $order_for_product->has_status( 'course-on-hold' ) ) {
         foreach ( $order_for_product->get_items() as $item ) {
-            if ( $item->get_product_id() == $product_id ) {
+            if ( $item->get_product_id() == $related_product_id ) {
                 echo '<style>#learndash-course-enroll-button { display: none !important; }</style>';
                 break;
             }
