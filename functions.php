@@ -44,91 +44,6 @@ function politeia_handle_course_join() {
 
 /**
  * =============================================================================
- * TABLA DE DEPURACIÓN (VERSIÓN REFACTORIZADA CON CLASES)
- * =============================================================================
- */
-add_filter( 'the_content', 'politeia_course_debug_table_refactored', 20 );
-
-function politeia_course_debug_table_refactored( $content ) {
-    if ( ! is_singular( 'sfwd-courses' ) ) {
-        return $content;
-    }
-
-    // --- 1. Usar las clases para obtener los datos ---
-    $user_id   = get_current_user_id();
-    $user_data = get_userdata( $user_id );
-    $course    = new PoliteiaCourse( get_the_ID() );
-    $orderFinder = new PoliteiaOrderFinder();
-
-    $product_id = $course->getRelatedProductId();
-    $order_id   = $orderFinder->findOrderForUser( $user_id, $product_id );
-
-    $first_quiz_completed = false; // Asumiendo que esta lógica puede ir en otro lado o se simplifica.
-    if ( class_exists('Politeia_Quiz_Stats') ) {
-        $attempts = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, PoliteiaCourse::getFirstQuizId( $course->id ) );
-        $first_quiz_completed = ! empty( $attempts );
-    }
-
-    // --- 2. Renderizar la tabla con los datos obtenidos ---
-    ob_start();
-    ?>
-    <table style="width:60%; margin-top:20px; border-collapse:collapse; display: none;">
-        <tr><td><strong>User ID:</strong></td><td><?php echo esc_html( $user_id ); ?></td></tr>
-        <tr><td><strong>Username:</strong></td><td><?php echo esc_html( $user_data->user_login ); ?></td></tr>
-        <tr><td><strong>Course ID:</strong></td><td><?php echo esc_html( $course->id ); ?></td></tr>
-        <tr><td><strong>Related Product:</strong></td><td><?php echo $product_id ?: 'NO ENCONTRADO'; ?></td></tr>
-        <tr><td><strong>First Quiz ID:</strong></td><td><?php echo PoliteiaCourse::getFirstQuizId( $course->id ) ?: 'NO ASIGNADO'; ?></td></tr>
-        <tr><td><strong>Final Quiz ID:</strong></td><td><?php echo PoliteiaCourse::getFinalQuizId( $course->id ) ?: 'NO ASIGNADO'; ?></td></tr>
-        <tr><td><strong>First Quiz Completed:</strong></td><td><?php echo $first_quiz_completed ? 'TRUE' : 'FALSE'; ?></td></tr>
-        <tr><td><strong>ID de Orden (wp_posts.ID):</strong></td><td><?php echo $order_id ?: 'NO'; ?></td></tr>
-        <tr><td><strong>Bought?</strong></td><td><?php echo $order_id ? 'YES' : 'NO'; ?></td></tr>
-    </table>
-    <?php
-    return ob_get_clean() . $content;
-}
-
-/* CHANGE ORDER STATUS IN COURSE PAGE */
-
-add_action( 'wp', 'politeia_maybe_complete_order_from_debug_table' );
-
-function politeia_maybe_complete_order_from_debug_table() {
-    if ( ! is_singular( 'sfwd-courses' ) ) {
-        return;
-    }
-
-    $user_id = get_current_user_id();
-    if ( ! $user_id ) return;
-
-    $course_id = get_the_ID();
-    $course = new PoliteiaCourse( $course_id );
-    $product_id = $course->getRelatedProductId();
-
-    if ( ! $product_id ) return;
-
-    $orderFinder = new PoliteiaOrderFinder();
-    $order_id = $orderFinder->findOrderForUser( $user_id, $product_id );
-
-    if ( ! $order_id ) return;
-
-    $order = wc_get_order( $order_id );
-    if ( ! $order || $order->get_status() === 'completed' ) return;
-
-    // Verificar si se completó el First Quiz
-    $first_quiz_completed = false;
-    if ( class_exists('Politeia_Quiz_Stats') ) {
-        $attempts = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, PoliteiaCourse::getFirstQuizId( $course->id ) );
-        $first_quiz_completed = ! empty( $attempts );
-    }
-
-    // Si se completó el First Quiz y el usuario compró el curso, completar la orden
-    if ( $first_quiz_completed ) {
-        $order->update_status( 'completed', 'Orden completada automáticamente desde vista de curso.' );
-    }
-}
-
-
-/**
- * =============================================================================
  * CAMBIAR ESTADO DE ORDEN (VERSIÓN REFACTORIZADA CON CLASES)
  * =============================================================================
  */
@@ -141,14 +56,10 @@ function politeia_maybe_complete_order_from_debug_table() {
      // 1. Obtener datos iniciales
      $user_id = $user->ID;
      $quiz_id_completed = $quiz_data['quiz'];
- 
+
      if ( empty( $user_id ) || empty( $quiz_id_completed ) ) {
-         error_log("Faltan datos esenciales para procesar la orden.");
          return;
      }
- 
-     error_log("HOOK learndash_quiz_completed triggered for user ID: $user_id and quiz ID: $quiz_id_completed");
-     error_log("Comprobando finalización de quiz. User ID: $user_id | Quiz ID: $quiz_id_completed");
  
     // 2. Usar helper para encontrar el curso al que pertenece el quiz
     $course_id = class_exists( 'PoliteiaCourse' )
@@ -156,7 +67,6 @@ function politeia_maybe_complete_order_from_debug_table() {
         : 0;
 
     if ( ! $course_id ) {
-        error_log("No se encontró curso asociado al quiz ID: $quiz_id_completed");
         return;
     }
  
@@ -165,7 +75,6 @@ function politeia_maybe_complete_order_from_debug_table() {
      $product_id = $course->getRelatedProductId();
  
      if ( ! $product_id ) {
-         error_log("No se encontró producto relacionado al curso ID: $course_id");
          return;
      }
  
@@ -175,9 +84,8 @@ function politeia_maybe_complete_order_from_debug_table() {
          'status'      => [ 'course-on-hold' ],
          'limit'       => -1,
      ]);
- 
+
      if ( empty( $orders ) ) {
-         error_log("No se encontraron órdenes con estado 'course-on-hold' para user ID: $user_id");
          return;
      }
  
@@ -186,13 +94,11 @@ function politeia_maybe_complete_order_from_debug_table() {
          foreach ( $order->get_items() as $item ) {
              if ( (int) $item->get_product_id() === (int) $product_id ) {
                  $order->update_status( 'completed', 'Orden completada automáticamente tras rendir un quiz clave del curso.' );
-                 error_log("Orden ID {$order->get_id()} actualizada a 'completed' para user ID: $user_id");
                  return;
              }
          }
      }
- 
-     error_log("No se encontró producto $product_id en ninguna orden 'course-on-hold' del usuario.");
+
  }
  
 
@@ -675,55 +581,6 @@ function mostrar_info_usuario_checkout() {
         echo '<p>No purchases found.</p>';
     }
 
-    // Tabla del carrito
-    echo '<div id="debug-purchase-table" style="display:none">';
-    echo '<h3 style="margin-top:30px;">Current Cart</h3>';
-    echo '<table style="width:100%; border-collapse:collapse;">';
-    echo '<thead><tr>
-            <th style="border:1px solid #ccc; padding:8px;">Product</th>
-            <th style="border:1px solid #ccc; padding:8px;">Category</th>
-            <th style="border:1px solid #ccc; padding:8px;">Related Course</th>
-            <th style="border:1px solid #ccc; padding:8px;">Course ID</th>
-            <th style="border:1px solid #ccc; padding:8px;">Estado</th>
-          </tr></thead><tbody>';
-
-    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
-        $product = $cart_item['data'];
-        $product_id = $product->get_id();
-
-        $related_course_id = '';
-        $related_course_raw = get_post_meta( $product_id, '_related_course', true );
-        $course_data = maybe_unserialize( $related_course_raw );
-        if ( is_array( $course_data ) && ! empty( $course_data ) ) {
-            $related_course_id = (int) reset( $course_data );
-        } elseif ( is_numeric( $course_data ) ) {
-            $related_course_id = (int) $course_data;
-        }
-
-        echo '<tr>';
-        echo '<td style="border:1px solid #ccc; padding:8px;">' . esc_html( $product->get_name() ) . '</td>';
-        echo '<td style="border:1px solid #ccc; padding:8px;">' . wc_get_product_category_list( $product_id ) . '</td>';
-        echo '<td style="border:1px solid #ccc; padding:8px;">' . ( $related_course_id ? 'true' : 'false' ) . '</td>';
-        echo '<td style="border:1px solid #ccc; padding:8px;">' . esc_html( $related_course_id ) . '</td>';
-        echo '<td style="border:1px solid #ccc; padding:8px;">' . ( in_array( $product_id, $purchased_product_ids ) ? '<span style="color:red;">Curso ya comprado</span>' : 'Disponible para comprar' ) . '</td>';
-        echo '</tr>';
-    }
-
-    global $politeia_removed_from_cart;
-    if ( ! empty( $politeia_removed_from_cart ) ) {
-        foreach ( $politeia_removed_from_cart as $removed ) {
-            echo '<tr>';
-            echo '<td style="border:1px solid #ccc; padding:8px; color:#999;">' . esc_html( $removed['product_name'] ) . '</td>';
-            echo '<td style="border:1px solid #ccc; padding:8px; color:#999;">' . $removed['categories'] . '</td>';
-            echo '<td style="border:1px solid #ccc; padding:8px; color:#999;">true</td>';
-            echo '<td style="border:1px solid #ccc; padding:8px; color:#999;">' . esc_html( $removed['related_course_id'] ) . '</td>';
-            echo '<td style="border:1px solid #ccc; padding:8px; color:red;">Curso ya comprado</td>';
-            echo '</tr>';
-        }
-    }
-
-    echo '</tbody></table>';
-    echo '</div>';
     echo '</div>';
 }
 add_action( 'woocommerce_before_checkout_form', 'mostrar_info_usuario_checkout', 5 );
