@@ -801,16 +801,15 @@ add_action( 'woocommerce_before_cart', 'bfg_validar_y_avisar_compra_duplicada', 
 
 
 function politeia_ajax_mostrar_resultados_curso() {
-    if ( empty( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['nonce'] ) ), 'politeia_course_results' ) ) {
-        wp_send_json_error( array(
-            'message' => __( 'Solicitud no autorizada.', 'politeia-quiz-control' ),
-        ) );
-    }
+    check_ajax_referer( 'politeia_course_results', 'nonce' );
 
-    if ( ! is_user_logged_in() ) {
-        wp_send_json_error( array(
-            'message' => __( 'Inicia sesión para revisar tus resultados.', 'politeia-quiz-control' ),
-        ) );
+    if ( ! is_user_logged_in() || ! current_user_can( 'read' ) ) {
+        wp_send_json_error(
+            array(
+                'message' => __( 'Inicia sesión para revisar tus resultados.', 'politeia-quiz-control' ),
+            ),
+            403
+        );
     }
 
     $course_id = isset( $_POST['course_id'] ) ? absint( wp_unslash( $_POST['course_id'] ) ) : 0;
@@ -820,6 +819,15 @@ function politeia_ajax_mostrar_resultados_curso() {
         wp_send_json_error( array(
             'message' => __( 'No pudimos identificar el curso solicitado.', 'politeia-quiz-control' ),
         ) );
+    }
+
+    if ( function_exists( 'sfwd_lms_has_access' ) && ! sfwd_lms_has_access( $course_id, $user_id ) ) {
+        wp_send_json_error(
+            array(
+                'message' => __( 'No tienes acceso a los resultados de este curso.', 'politeia-quiz-control' ),
+            ),
+            403
+        );
     }
 
     $first_quiz_id = isset( $_POST['first_quiz_id'] ) ? absint( wp_unslash( $_POST['first_quiz_id'] ) ) : 0;
@@ -893,7 +901,6 @@ function politeia_ajax_mostrar_resultados_curso() {
 }
 
 add_action( 'wp_ajax_mostrar_resultados_curso', 'politeia_ajax_mostrar_resultados_curso' );
-add_action( 'wp_ajax_nopriv_mostrar_resultados_curso', 'politeia_ajax_mostrar_resultados_curso' );
 
 /* FUNCION AJAX */
 
@@ -903,180 +910,169 @@ add_action( 'wp_ajax_nopriv_mostrar_resultados_curso', 'politeia_ajax_mostrar_re
 * Esta función es invocada por las peticiones AJAX desde el cliente.
 */
 function politeia_get_latest_quiz_activity() {
-    error_log( 'AJAX Debug: politeia_get_latest_quiz_activity function initiated.' );
+    check_ajax_referer( 'politeia_quiz_stats', 'nonce' );
 
-    $received_action = isset( $_POST['action'] ) ? sanitize_text_field( $_POST['action'] ) : 'NOT_SET';
-    error_log( 'AJAX Debug: Received action: ' . $received_action );
-
-    if ( $received_action !== 'get_latest_quiz_activity' ) {
-        error_log( 'AJAX Debug: ERROR - Action mismatch or not set. Expected "get_latest_quiz_activity", received: ' . $received_action );
-        wp_send_json_error( 'Invalid AJAX action received by handler.' );
-        exit;
+    if ( ! is_user_logged_in() || ! current_user_can( 'read' ) ) {
+        wp_send_json_error(
+            array(
+                'message'          => __( 'Tu sesión no es válida para consultar este quiz.', 'politeia-quiz-control' ),
+                'continue_polling' => false,
+            ),
+            403
+        );
     }
 
-    $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
-    if ( ! wp_verify_nonce( $nonce, 'politeia_quiz_stats' ) ) {
-        error_log( 'AJAX Debug: ERROR - Nonce verification failed.' );
-        wp_send_json_error( array(
-            'message'           => 'Invalid security token.',
-            'continue_polling'  => false,
-        ) );
-        exit;
+    $requested_user_id = isset( $_POST['user_id'] ) ? absint( wp_unslash( $_POST['user_id'] ) ) : 0;
+    $quiz_id           = isset( $_POST['quiz_id'] ) ? absint( wp_unslash( $_POST['quiz_id'] ) ) : 0;
+    $baseline_activity = isset( $_POST['baseline_activity_id'] ) ? absint( wp_unslash( $_POST['baseline_activity_id'] ) ) : 0;
+    $current_user_id   = get_current_user_id();
+
+    if ( $requested_user_id && $requested_user_id !== $current_user_id ) {
+        wp_send_json_error(
+            array(
+                'message'          => __( 'No puedes revisar el puntaje de otra cuenta.', 'politeia-quiz-control' ),
+                'continue_polling' => false,
+            ),
+            403
+        );
     }
 
-    $requested_user_id = isset( $_POST['user_id'] ) ? intval( wp_unslash( $_POST['user_id'] ) ) : 0;
+    if ( ! $quiz_id ) {
+        wp_send_json_error(
+            array(
+                'message'          => __( 'Faltan datos para consultar el quiz.', 'politeia-quiz-control' ),
+                'continue_polling' => false,
+            )
+        );
+    }
+
+    $related_course_id = 0;
+    if ( class_exists( 'PoliteiaCourse' ) ) {
+        $related_course_id = (int) PoliteiaCourse::getCourseFromQuiz( $quiz_id );
+    }
+
+    if ( $related_course_id && function_exists( 'sfwd_lms_has_access' ) && ! sfwd_lms_has_access( $related_course_id, $current_user_id ) ) {
+        wp_send_json_error(
+            array(
+                'message'          => __( 'No tienes permisos para consultar este quiz.', 'politeia-quiz-control' ),
+                'continue_polling' => false,
+            ),
+            403
+        );
+    }
 
     global $wpdb;
 
-    $current_quiz_post_id = isset( $_POST['quiz_id'] ) ? intval( wp_unslash( $_POST['quiz_id'] ) ) : 0;
-    $current_user_id      = get_current_user_id();
+    $cache_key     = sprintf( 'politeia_latest_attempt_%d_%d', $current_user_id, $quiz_id );
+    $cached_payload = get_transient( $cache_key );
 
-    if ( $requested_user_id && $requested_user_id !== $current_user_id ) {
-        error_log( 'AJAX Debug: ERROR - User ID mismatch for quiz activity polling.' );
-        wp_send_json_error( array(
-            'message'           => 'User verification failed.',
-            'continue_polling'  => false,
-        ) );
-        exit;
+    if ( false !== $cached_payload && isset( $cached_payload['latest_activity_id'] ) ) {
+        if ( $cached_payload['latest_activity_id'] > $baseline_activity ) {
+            $cached_payload['status'] = 'ready';
+            wp_send_json_success( $cached_payload );
+        }
     }
 
-    // NEW: Get the baseline activity ID from the client (what shortcode had at page load)
-    $baseline_activity_id = isset( $_POST['baseline_activity_id'] ) ? intval( wp_unslash( $_POST['baseline_activity_id'] ) ) : 0;
-
-    error_log( 'AJAX Debug: Params - Quiz Post ID: ' . $current_quiz_post_id . ', Current User ID: ' . $current_user_id . ', Baseline Activity ID: ' . $baseline_activity_id );
-
-    if ( ! $current_quiz_post_id || ! $current_user_id ) {
-        error_log( 'AJAX Debug: ERROR - Missing essential IDs for AJAX request.' );
-        wp_send_json_error( 'Missing essential IDs for AJAX request.' );
-        exit;
-    }
-
-    // --- MODIFIED: Look for the CURRENT USER'S LATEST attempt that is NEWER than baseline ---
-    $current_user_latest_activity_data = null;
-    $user_specific_main_activity = $wpdb->get_row( $wpdb->prepare(
-        "
-        SELECT ua.activity_id, ua.activity_started, ua.activity_completed
-        FROM {$wpdb->prefix}learndash_user_activity AS ua
-        INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS uam
-        ON ua.activity_id = uam.activity_id
-        WHERE ua.user_id = %d
-        AND ua.activity_type = 'quiz'
-        AND uam.activity_meta_key = 'quiz'
-        AND uam.activity_meta_value+0 = %d
-        AND ua.activity_id > %d
-        ORDER BY ua.activity_id DESC
-        LIMIT 1
+    $activity = $wpdb->get_row(
+        $wpdb->prepare(
+            "
+            SELECT ua.activity_id, ua.activity_started, ua.activity_completed
+            FROM {$wpdb->prefix}learndash_user_activity AS ua
+            INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS quiz_meta
+                ON ua.activity_id = quiz_meta.activity_id AND quiz_meta.activity_meta_key = 'quiz'
+            WHERE ua.user_id = %d
+                AND ua.activity_type = 'quiz'
+                AND quiz_meta.activity_meta_value+0 = %d
+                AND ua.activity_id > %d
+            ORDER BY ua.activity_id DESC
+            LIMIT 1
         ",
-        $current_user_id,
-        $current_quiz_post_id,
-        $baseline_activity_id  // Only get attempts NEWER than baseline
-    ) );
+            $current_user_id,
+            $quiz_id,
+            $baseline_activity
+        )
+    );
 
-    if ($user_specific_main_activity) {
-        error_log( 'AJAX Debug: Found NEW user-specific activity (ID: ' . $user_specific_main_activity->activity_id . ') newer than baseline (' . $baseline_activity_id . ')' );
+    $retry_seconds = (int) apply_filters( 'politeia_quiz_poll_retry_seconds', 5 );
 
-        $raw_activity_meta_results_for_user_latest = $wpdb->get_results( $wpdb->prepare(
+    if ( ! $activity ) {
+        wp_send_json_success(
+            array(
+                'status'              => 'pending',
+                'retry_after'         => max( 1, $retry_seconds ),
+                'latest_activity_id'  => (int) $baseline_activity,
+                'message'             => __( 'No se encontraron intentos nuevos todavía.', 'politeia-quiz-control' ),
+            )
+        );
+    }
+
+    $meta_rows = $wpdb->get_results(
+        $wpdb->prepare(
             "SELECT activity_meta_key, activity_meta_value
             FROM {$wpdb->prefix}learndash_user_activity_meta
             WHERE activity_id = %d",
-            $user_specific_main_activity->activity_id
-        ), OBJECT );
+            $activity->activity_id
+        ),
+        OBJECT_K
+    );
 
-        $activity_meta_map_for_user_latest = [];
-        foreach ($raw_activity_meta_results_for_user_latest as $row) {
-            $activity_meta_map_for_user_latest[$row->activity_meta_key] = $row->activity_meta_value;
-        }
-
-        error_log( 'AJAX Debug: User-specific raw meta map for NEW ID ' . $user_specific_main_activity->activity_id . ': ' . print_r($activity_meta_map_for_user_latest, true) );
-
-        // Check if we have essential score data - if not, continue polling
-        if (isset($activity_meta_map_for_user_latest['total_points']) && isset($activity_meta_map_for_user_latest['percentage'])) {
-            $current_user_latest_activity_data = [
-                'activity_id' => $user_specific_main_activity->activity_id,
-                'started' => date( 'Y-m-d H:i:s', $user_specific_main_activity->activity_started ),
-                'completed' => $user_specific_main_activity->activity_completed ? date( 'Y-m-d H:i:s', $user_specific_main_activity->activity_completed ) : 'In Progress',
-                'duration' => $user_specific_main_activity->activity_completed ? ($user_specific_main_activity->activity_completed - $user_specific_main_activity->activity_started) : 0,
-                'score_data' => [
-                    'score' => isset($activity_meta_map_for_user_latest['score']) ? intval($activity_meta_map_for_user_latest['score']) : 0,
-                    'total_points' => isset($activity_meta_map_for_user_latest['total_points']) ? intval($activity_meta_map_for_user_latest['total_points']) : 0,
-                    'percentage' => isset($activity_meta_map_for_user_latest['percentage']) ? round(floatval($activity_meta_map_for_user_latest['percentage'])) : 0,
-                    'passed' => isset($activity_meta_map_for_user_latest['pass']) ? (bool)intval($activity_meta_map_for_user_latest['pass']) : false,
-                ],
-            ];
-            error_log( 'AJAX Debug: NEW attempt details SUCCESSFULLY BUILT with complete score data.' );
-        } else {
-            error_log( 'AJAX Debug: NEW attempt found (ID: ' . $user_specific_main_activity->activity_id . ') but ESSENTIAL META DATA NOT YET AVAILABLE. Continue polling...' );
-        }
-    } else {
-        error_log( 'AJAX Debug: No NEW user-specific activity found yet (looking for ID > ' . $baseline_activity_id . ')' );
+    if ( empty( $meta_rows['total_points'] ) || empty( $meta_rows['percentage'] ) ) {
+        wp_send_json_success(
+            array(
+                'status'              => 'pending',
+                'retry_after'         => max( 1, $retry_seconds ),
+                'latest_activity_id'  => (int) $activity->activity_id,
+                'message'             => __( 'El intento sigue procesándose, vuelve a consultar en unos segundos.', 'politeia-quiz-control' ),
+            )
+        );
     }
 
-    // --- Fetch ALL relevant quiz attempts (for updated Promedio Polis) ---
-    $all_global_attempts_percentages = [];
-    $attempts_base_query_sql = "
-        SELECT ua.activity_id
-        FROM {$wpdb->prefix}learndash_user_activity AS ua
-        INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS uam
-        ON ua.activity_id = uam.activity_id
-        WHERE ua.activity_type = 'quiz'
-        AND ua.activity_completed IS NOT NULL
-        AND uam.activity_meta_key = 'quiz'
-        AND uam.activity_meta_value+0 = %d
-        ORDER BY ua.activity_id ASC
-    ";
-    $base_query_params = [$current_quiz_post_id];
+    $percentage_raw = isset( $meta_rows['percentage']->activity_meta_value ) ? (float) $meta_rows['percentage']->activity_meta_value : 0;
+    $average_percentage = $wpdb->get_var(
+        $wpdb->prepare(
+            "
+            SELECT AVG( CAST( percentage_meta.activity_meta_value AS DECIMAL(10,2) ) )
+            FROM {$wpdb->prefix}learndash_user_activity AS ua
+            INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS quiz_meta
+                ON ua.activity_id = quiz_meta.activity_id AND quiz_meta.activity_meta_key = 'quiz'
+            INNER JOIN {$wpdb->prefix}learndash_user_activity_meta AS percentage_meta
+                ON ua.activity_id = percentage_meta.activity_id AND percentage_meta.activity_meta_key = 'percentage'
+            WHERE ua.activity_type = 'quiz'
+                AND ua.activity_completed IS NOT NULL
+                AND quiz_meta.activity_meta_value+0 = %d
+        ",
+            $quiz_id
+        )
+    );
 
-    $all_global_activity_ids = $wpdb->get_results( $wpdb->prepare( $attempts_base_query_sql, ...$base_query_params ) );
+    $latest_activity_details = array(
+        'activity_id' => (int) $activity->activity_id,
+        'started'     => $activity->activity_started ? gmdate( 'Y-m-d H:i:s', (int) $activity->activity_started ) : '',
+        'completed'   => $activity->activity_completed ? gmdate( 'Y-m-d H:i:s', (int) $activity->activity_completed ) : '',
+        'duration'    => $activity->activity_completed ? max( 0, (int) $activity->activity_completed - (int) $activity->activity_started ) : 0,
+        'score_data'  => array(
+            'score'        => isset( $meta_rows['score']->activity_meta_value ) ? (int) $meta_rows['score']->activity_meta_value : 0,
+            'total_points' => (int) $meta_rows['total_points']->activity_meta_value,
+            'percentage'   => (int) round( $percentage_raw ),
+            'passed'       => ! empty( $meta_rows['pass']->activity_meta_value ) && (int) $meta_rows['pass']->activity_meta_value === 1,
+        ),
+    );
 
-    foreach ( $all_global_activity_ids as $activity_row ) {
-        $percentage_val = $wpdb->get_var( $wpdb->prepare( "
-            SELECT activity_meta_value
-            FROM {$wpdb->prefix}learndash_user_activity_meta
-            WHERE activity_id = %d
-            AND activity_meta_key = 'percentage'
-            LIMIT 1
-        ", $activity_row->activity_id ) );
+    $payload = array(
+        'status'              => 'ready',
+        'latest_activity_id'  => (int) $activity->activity_id,
+        'latest_activity_details' => $latest_activity_details,
+        'average_percentage'  => null !== $average_percentage ? (int) round( (float) $average_percentage ) : null,
+        'retry_after'         => max( 1, $retry_seconds ),
+        'course_id'           => $related_course_id,
+    );
 
-        if ( $percentage_val !== null && is_numeric($percentage_val) ) {
-            $all_global_attempts_percentages[] = [
-                'id' => $activity_row->activity_id,
-                'percentage' => round(floatval($percentage_val))
-            ];
-        }
-    }
+    set_transient( $cache_key, $payload, 10 );
 
-    error_log( 'AJAX Debug: all_global_attempts_percentages (for updated Promedio Polis): ' . print_r($all_global_attempts_percentages, true) );
-
-    // --- Send response ---
-    // SUCCESS: We found a new attempt with complete score data
-    if ( $current_user_latest_activity_data !== null ) {
-        wp_send_json_success( array(
-            'all_attempts_percentages' => $all_global_attempts_percentages,
-            'latest_activity_details' => $current_user_latest_activity_data,
-            'new_attempt_found' => true,
-            'message' => 'New attempt found with complete data'
-        ) );
-    } 
-    // CONTINUE POLLING: Either no new attempt found, or new attempt found but incomplete data
-    else {
-        $message = $user_specific_main_activity ? 
-            'New attempt found but data incomplete - continue polling' : 
-            'No new attempt found yet - continue polling';
-            
-        error_log( 'AJAX Debug: ' . $message );
-        wp_send_json_error( array(
-            'message' => $message,
-            'baseline_id' => $baseline_activity_id,
-            'continue_polling' => true
-        ) );
-    }
-    exit;
+    wp_send_json_success( $payload );
 }
 
-// Estos "hooks" son los que registran tu función AJAX con WordPress.
-// Se ejecutan automáticamente cuando WordPress procesa una petición a admin-ajax.php
+// Este hook registra la función AJAX con WordPress para usuarios autenticados.
+// Se ejecuta automáticamente cuando WordPress procesa una petición a admin-ajax.php
 // con la acción 'get_latest_quiz_activity'.
-// 'wp_ajax_' es para usuarios logueados.
 add_action( 'wp_ajax_get_latest_quiz_activity', 'politeia_get_latest_quiz_activity' );
-// 'wp_ajax_nopriv_' es para usuarios no logueados (si quieres que vean los resultados).
-add_action( 'wp_ajax_nopriv_get_latest_quiz_activity', 'politeia_get_latest_quiz_activity' );
