@@ -46,8 +46,10 @@ class PQC_Metabox_First_Quiz {
 
         // <select> vacío, Select2 lo llenará vía AJAX. Si hay valor guardado,
         // lo mostramos como opción seleccionada para que aparezca visible.
-        echo '<select name="' . esc_attr( self::META_KEY ) . '" id="' . esc_attr( self::META_KEY ) . '" class="pqc-select2" style="width:100%;" data-placeholder="—Ninguno—">';
-        echo '<option value="">—Ninguno—</option>';
+        $placeholder = __( '— None —', 'politeia-quiz-control' );
+
+        echo '<select name="' . esc_attr( self::META_KEY ) . '" id="' . esc_attr( self::META_KEY ) . '" class="pqc-select2" style="width:100%;" data-placeholder="' . esc_attr( $placeholder ) . '">';
+        echo '<option value="">' . esc_html( $placeholder ) . '</option>';
 
         if ( $value ) {
             $title = get_the_title( $value );
@@ -75,7 +77,7 @@ class PQC_Metabox_First_Quiz {
         }
 
         // Comprobación de capacidad.
-        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+        if ( ! current_user_can( 'edit_posts' ) ) {
             return;
         }
 

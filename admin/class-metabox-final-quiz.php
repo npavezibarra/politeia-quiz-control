@@ -34,8 +34,10 @@ class PQC_Metabox_Final_Quiz {
 
         wp_nonce_field( 'pqc_final_quiz_nonce', 'pqc_final_quiz_nonce_field' );
 
-        echo '<select name="' . esc_attr( self::META_KEY ) . '" id="' . esc_attr( self::META_KEY ) . '" class="pqc-select2" style="width:100%;" data-placeholder="—Ninguno—">';
-        echo '<option value="">—Ninguno—</option>';
+        $placeholder = __( '— None —', 'politeia-quiz-control' );
+
+        echo '<select name="' . esc_attr( self::META_KEY ) . '" id="' . esc_attr( self::META_KEY ) . '" class="pqc-select2" style="width:100%;" data-placeholder="' . esc_attr( $placeholder ) . '">';
+        echo '<option value="">' . esc_html( $placeholder ) . '</option>';
 
         if ( $value ) {
             $title = get_the_title( $value );
@@ -56,7 +58,7 @@ class PQC_Metabox_Final_Quiz {
             return;
         }
 
-        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+        if ( ! current_user_can( 'edit_posts' ) ) {
             return;
         }
 

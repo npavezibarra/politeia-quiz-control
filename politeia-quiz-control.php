@@ -87,11 +87,12 @@ public function enqueue_frontend_assets(): void {
         wp_enqueue_style( 'pqc-admin', PQC_PLUGIN_URL . 'assets/admin.css', [ 'pqc-select2' ], PQC_VERSION );
         wp_enqueue_script( 'pqc-admin', PQC_PLUGIN_URL . 'assets/admin.js', [ 'jquery', 'pqc-select2' ], PQC_VERSION, true );
         wp_localize_script( 'pqc-admin', 'pqcData', [
-            'restUrl'  => esc_url_raw( rest_url( 'politeia-quiz-control/v1/quiz-search' ) ),
-            'nonce'    => wp_create_nonce( 'wp_rest' ),
-            'i18n'     => [
-                'searching'  => __( 'Buscando…', 'politeia-quiz-control' ),
-                'noResults'  => __( 'No se encontraron resultados', 'politeia-quiz-control' ),
+            'restUrl' => esc_url_raw( rest_url( 'politeia-quiz-control/v1/quiz-search' ) ),
+            'nonce'   => wp_create_nonce( 'wp_rest' ),
+            'i18n'    => [
+                'searching'   => __( 'Buscando…', 'politeia-quiz-control' ),
+                'noResults'   => __( 'No se encontraron resultados', 'politeia-quiz-control' ),
+                'placeholder' => __( '— None —', 'politeia-quiz-control' ),
             ],
         ] );
     }
