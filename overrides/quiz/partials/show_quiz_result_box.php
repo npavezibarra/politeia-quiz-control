@@ -101,28 +101,37 @@ $current_user_id = get_current_user_id();
 $quiz_id         = get_the_ID();
 
 // --- Quiz Type and Course Association Logic (no change) ---
-$course_id      = null;
-$is_first_quiz  = false;
-$is_final_quiz  = false;
+$analytics = class_exists( 'Politeia_Quiz_Analytics' )
+    ? new Politeia_Quiz_Analytics( (int) $quiz_id )
+    : null;
 
-// Check if this quiz is assigned as First Quiz in any course
-$course_id_from_first_quiz = $wpdb->get_var( $wpdb->prepare(
-    "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_first_quiz_id' AND meta_value = %d",
-    $quiz_id
-) );
-if ( ! empty( $course_id_from_first_quiz ) ) {
-    $course_id     = $course_id_from_first_quiz;
-    $is_first_quiz = true;
-}
+$course_id      = $analytics ? $analytics->getCourseId() : 0;
+$is_first_quiz  = $analytics ? $analytics->isFirstQuiz() : false;
+$is_final_quiz  = $analytics ? $analytics->isFinalQuiz() : false;
+$first_quiz_id  = $analytics ? $analytics->getFirstQuizId() : 0;
+$final_quiz_id  = $analytics ? $analytics->getFinalQuizId() : 0;
 
-// Check if this quiz is assigned as Final Quiz in any course
-$course_id_from_final_quiz = $wpdb->get_var( $wpdb->prepare(
-    "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_final_quiz_id' AND meta_value = %d",
-    $quiz_id
-) );
-if ( ! empty( $course_id_from_final_quiz ) ) {
-    $course_id     = $course_id_from_final_quiz;
-    $is_final_quiz = true;
+if ( ! $analytics ) {
+    // Fallback legacy detection if helper is unavailable.
+    $course_id_from_first_quiz = $wpdb->get_var( $wpdb->prepare(
+        "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_first_quiz_id' AND meta_value = %d",
+        $quiz_id
+    ) );
+    if ( ! empty( $course_id_from_first_quiz ) ) {
+        $course_id     = $course_id_from_first_quiz;
+        $is_first_quiz = true;
+        $first_quiz_id = (int) get_post_meta( $course_id, '_first_quiz_id', true );
+    }
+
+    $course_id_from_final_quiz = $wpdb->get_var( $wpdb->prepare(
+        "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_final_quiz_id' AND meta_value = %d",
+        $quiz_id
+    ) );
+    if ( ! empty( $course_id_from_final_quiz ) ) {
+        $course_id     = $course_id_from_final_quiz;
+        $is_final_quiz = true;
+        $final_quiz_id = (int) get_post_meta( $course_id, '_final_quiz_id', true );
+    }
 }
 
 // Buscar producto relacionado usando meta_value serializado (no change)
@@ -165,9 +174,8 @@ if ( $current_user_id && $related_product_id ) {
 
 // Obtener el puntaje del First Quiz si estamos en Final Quiz (no change)
 $first_quiz_score = 0;
-if ( $is_final_quiz && $course_id ) {
-    $first_quiz_id = get_post_meta( $course_id, '_first_quiz_id', true );
-    if ( $first_quiz_id && $current_user_id ) {
+if ( $is_final_quiz && $course_id && $first_quiz_id ) {
+    if ( $current_user_id ) {
         if ( class_exists( 'Politeia_Quiz_Stats' ) ) {
             $latest_id = Politeia_Quiz_Stats::get_latest_attempt_id( $current_user_id, $first_quiz_id );
             if ( $latest_id ) {

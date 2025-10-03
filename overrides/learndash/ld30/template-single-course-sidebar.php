@@ -187,8 +187,12 @@ if ( 0 < $progress['percentage'] && 100 !== $progress['percentage'] ) {
                     // ——— START CUSTOM BUTTON LOGIC (BASED ON DIAGRAM AND CLARIFICATIONS) ———
 
                     // IDs básicos para Quizzes
-                    $first_quiz_id = get_post_meta( $course_id, '_first_quiz_id', true );
-                    $final_quiz_id = get_post_meta( $course_id, '_final_quiz_id', true );
+                    $first_quiz_id = class_exists( 'PoliteiaCourse' )
+                        ? PoliteiaCourse::getFirstQuizId( (int) $course_id )
+                        : (int) get_post_meta( $course_id, '_first_quiz_id', true );
+                    $final_quiz_id = class_exists( 'PoliteiaCourse' )
+                        ? PoliteiaCourse::getFinalQuizId( (int) $course_id )
+                        : (int) get_post_meta( $course_id, '_final_quiz_id', true );
 
                     // URLs para Quizzes
                     $first_quiz_url = $first_quiz_id

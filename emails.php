@@ -32,12 +32,24 @@ function pqc_get_quiz_debug_data( $quiz_data, $user ) { // <-- CAMBIO: Acepta el
     $user_id = $user->ID; // <-- CAMBIO: Obtenemos el ID del objeto $user
     $quiz_id = is_object( $quiz_data['quiz'] ) ? $quiz_data['quiz']->ID : $quiz_data['quiz'];
     
-    $course_id_first = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_first_quiz_id' AND meta_value = %d LIMIT 1", $quiz_id ) );
-    $course_id_final = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_final_quiz_id' AND meta_value = %d LIMIT 1", $quiz_id ) );
-    $course_id = $course_id_first ?: $course_id_final;
+    $analytics = class_exists( 'Politeia_Quiz_Analytics' )
+        ? new Politeia_Quiz_Analytics( (int) $quiz_id )
+        : null;
 
-    $first_quiz_id = $course_id ? get_post_meta( $course_id, '_first_quiz_id', true ) : null;
-    $final_quiz_id = $course_id ? get_post_meta( $course_id, '_final_quiz_id', true ) : null;
+    if ( $analytics ) {
+        $course_id     = $analytics->getCourseId();
+        $first_quiz_id = $analytics->getFirstQuizId() ?: null;
+        $final_quiz_id = $analytics->getFinalQuizId() ?: null;
+    } else {
+        $course_id_first = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_first_quiz_id' AND meta_value = %d LIMIT 1", $quiz_id ) );
+        $course_id_final = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_final_quiz_id' AND meta_value = %d LIMIT 1", $quiz_id ) );
+        $course_id       = $course_id_first ?: $course_id_final;
+
+        $first_quiz_id = $course_id ? get_post_meta( $course_id, '_first_quiz_id', true ) : null;
+        $final_quiz_id = $course_id ? get_post_meta( $course_id, '_final_quiz_id', true ) : null;
+    }
+
+    $course_id  = $course_id ?? 0;
     $first_data = $first_quiz_id ? pqc_get_last_attempt_data( $user_id, $first_quiz_id ) : [ 'percentage' => 'None', 'date' => '—' ];
     $final_data = $final_quiz_id ? pqc_get_last_attempt_data( $user_id, $final_quiz_id ) : [ 'percentage' => 'None', 'date' => '—' ];
     $progress_data = $course_id ? learndash_course_progress(['user_id' => $user_id, 'course_id' => $course_id, 'array' => true]) : ['percentage' => 0];

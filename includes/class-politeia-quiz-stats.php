@@ -132,12 +132,34 @@ class PoliteiaCourse {
         return $this->post ? $this->post->post_title : 'Curso no encontrado';
     }
 
-    public function getFirstQuizId() {
-        return $this->post ? (int) get_post_meta( $this->id, '_first_quiz_id', true ) : 0;
+    public function __call( $name, $arguments ) {
+        if ( 'getFirstQuizId' === $name ) {
+            return self::getFirstQuizId( $this->id );
+        }
+
+        if ( 'getFinalQuizId' === $name ) {
+            return self::getFinalQuizId( $this->id );
+        }
+
+        return null;
     }
 
-    public function getFinalQuizId() {
-        return $this->post ? (int) get_post_meta( $this->id, '_final_quiz_id', true ) : 0;
+    public static function getFirstQuizId( int $course_id ): int {
+        return self::getQuizMetaId( $course_id, '_first_quiz_id' );
+    }
+
+    public static function getFinalQuizId( int $course_id ): int {
+        return self::getQuizMetaId( $course_id, '_final_quiz_id' );
+    }
+
+    protected static function getQuizMetaId( int $course_id, string $meta_key ): int {
+        if ( ! $course_id ) {
+            return 0;
+        }
+
+        $value = get_post_meta( $course_id, $meta_key, true );
+
+        return $value ? (int) $value : 0;
     }
 
     public function getRelatedProductId() {
@@ -188,32 +210,113 @@ class PoliteiaCourse {
             && (int) $progress['completed'] >= (int) $progress['total'];
     }
 
-    public static function find_course_id_by_quiz( $quiz_id ) {
+    public static function getCourseFromQuiz( int $quiz_id ): int {
+        if ( ! $quiz_id ) {
+            return 0;
+        }
+
         global $wpdb;
 
-        // 1. Verifica si este quiz es un First Quiz
         $course_id = $wpdb->get_var( $wpdb->prepare(
             "SELECT post_id
              FROM {$wpdb->postmeta}
-             WHERE meta_key = '_first_quiz_id'
+             WHERE meta_key IN ('_first_quiz_id', '_final_quiz_id')
                AND meta_value = %d
-             LIMIT 1", $quiz_id
+             LIMIT 1",
+            $quiz_id
         ) );
 
         if ( $course_id ) {
             return (int) $course_id;
         }
 
-        // 2. Verifica si está en el builder del curso (como Final Quiz u otro)
+        if ( function_exists( 'learndash_get_course_id' ) ) {
+            $course_id = (int) learndash_get_course_id( $quiz_id );
+            if ( $course_id ) {
+                return $course_id;
+            }
+        }
+
         $course_id = $wpdb->get_var( $wpdb->prepare(
             "SELECT post_id
              FROM {$wpdb->prefix}learndash_course_steps
              WHERE step_id = %d
                AND step_type = 'quiz'
-             LIMIT 1", $quiz_id
+             LIMIT 1",
+            $quiz_id
         ) );
 
         return $course_id ? (int) $course_id : 0;
+    }
+
+    public static function find_course_id_by_quiz( $quiz_id ) {
+        return self::getCourseFromQuiz( (int) $quiz_id );
+    }
+}
+
+class Politeia_Quiz_Analytics {
+
+    protected $quiz_id = 0;
+    protected $course_id = 0;
+    protected $first_quiz_id = 0;
+    protected $final_quiz_id = 0;
+
+    public function __construct( int $quiz_id ) {
+        $this->quiz_id   = $quiz_id;
+        $this->course_id = PoliteiaCourse::getCourseFromQuiz( $quiz_id );
+
+        if ( $this->course_id ) {
+            $this->first_quiz_id = PoliteiaCourse::getFirstQuizId( $this->course_id );
+            $this->final_quiz_id = PoliteiaCourse::getFinalQuizId( $this->course_id );
+        }
+    }
+
+    public function getQuizId(): int {
+        return $this->quiz_id;
+    }
+
+    public function getCourseId(): int {
+        return $this->course_id;
+    }
+
+    public function isFirstQuiz(): bool {
+        return $this->quiz_id && $this->first_quiz_id && (int) $this->quiz_id === (int) $this->first_quiz_id;
+    }
+
+    public function isFinalQuiz(): bool {
+        return $this->quiz_id && $this->final_quiz_id && (int) $this->quiz_id === (int) $this->final_quiz_id;
+    }
+
+    public function getFirstQuizId(): int {
+        return $this->first_quiz_id;
+    }
+
+    public function getFinalQuizId(): int {
+        return $this->final_quiz_id;
+    }
+
+    public function getFirstQuizData( int $user_id ): array {
+        return $this->getQuizData( $user_id, $this->first_quiz_id );
+    }
+
+    public function getFinalQuizData( int $user_id ): array {
+        return $this->getQuizData( $user_id, $this->final_quiz_id );
+    }
+
+    protected function getQuizData( int $user_id, int $quiz_id ): array {
+        $attempts = [];
+        $latest   = null;
+
+        if ( $user_id && $quiz_id && class_exists( 'Politeia_Quiz_Stats' ) ) {
+            $attempts = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, $quiz_id );
+            $latest   = $attempts[0] ?? null;
+        }
+
+        return [
+            'quiz_id'        => $quiz_id,
+            'attempts'       => $attempts,
+            'latest_attempt' => $latest,
+        ];
     }
 }
 
