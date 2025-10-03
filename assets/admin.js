@@ -26,7 +26,7 @@
         width: '100%',
         minimumInputLength: 1,
         allowClear: true,
-        placeholder: '—Ninguno—',
+        placeholder: ( cfg.i18n?.placeholder || '— None —' ),
         language: {
           searching:   () => ( cfg.i18n?.searching   || 'Buscando…' ),
           noResults:   () => ( cfg.i18n?.noResults   || 'No se encontraron resultados' ),
