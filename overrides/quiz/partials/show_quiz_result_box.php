@@ -1026,7 +1026,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    function updateAttemptStatus(message, tone = 'info') {
+    function updateAttemptStatus(message, tone = 'info', options = {}) {
         if (!datosDelIntentoStatus) {
             return;
         }
@@ -1036,7 +1036,9 @@ document.addEventListener('DOMContentLoaded', function () {
             error: '#D32F2F',
             success: '#2E7D32'
         };
-        datosDelIntentoStatus.innerHTML = `<p style="color:${colors[tone] || colors.info};">${message}</p>`;
+        const allowHtml = options && options.allowHtml;
+        const safeMessage = allowHtml ? String(message) : escapeHtml(String(message));
+        datosDelIntentoStatus.innerHTML = `<p style="color:${colors[tone] || colors.info};">${safeMessage}</p>`;
         datosDelIntentoStatus.style.display = 'block';
     }
 
@@ -1045,16 +1047,26 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        const safeActivityId = Number(attemptData.activity_id) || 0;
+        const safeStarted = attemptData.started ? escapeHtml(String(attemptData.started)) : '';
+        const safeCompleted = attemptData.completed ? escapeHtml(String(attemptData.completed)) : '';
+        const safeDuration = Number(attemptData.duration) || 0;
+        const scoreData = attemptData.score_data || {};
+        const safeScore = Number(scoreData.score) || 0;
+        const safeTotalPoints = Number(scoreData.total_points) || 0;
+        const safePercentage = Number(scoreData.percentage) || 0;
+        const safePassed = !!scoreData.passed;
+
         datosDelIntentoContainer.innerHTML = `
             <h4 style="margin-bottom:12px;color:#2E7D32;">✅ Datos del Intento</h4>
-            <p><strong>Activity ID:</strong> ${attemptData.activity_id}</p>
-            <p><strong>Inicio:</strong> ${attemptData.started}</p>
-            <p><strong>Término:</strong> ${attemptData.completed}</p>
-            <p><strong>Duración:</strong> ${attemptData.duration} segundos</p>
+            <p><strong>Activity ID:</strong> ${safeActivityId}</p>
+            <p><strong>Inicio:</strong> ${safeStarted}</p>
+            <p><strong>Término:</strong> ${safeCompleted}</p>
+            <p><strong>Duración:</strong> ${safeDuration} segundos</p>
             <hr style="margin:16px 0;border-top:1px solid #c8e6c9;" />
-            <p><strong>Puntaje:</strong> ${attemptData.score_data.score} de ${attemptData.score_data.total_points}</p>
-            <p><strong>Porcentaje:</strong> ${attemptData.score_data.percentage}%</p>
-            <p><strong>Estado:</strong> ${attemptData.score_data.passed ? 'Aprobado' : 'Reprobado'}</p>
+            <p><strong>Puntaje:</strong> ${safeScore} de ${safeTotalPoints}</p>
+            <p><strong>Porcentaje:</strong> ${safePercentage}%</p>
+            <p><strong>Estado:</strong> ${safePassed ? 'Aprobado' : 'Reprobado'}</p>
         `;
         datosDelIntentoContainer.style.display = 'block';
         if (datosDelIntentoStatus) {
@@ -1241,21 +1253,35 @@ document.addEventListener('DOMContentLoaded', function () {
         hydrateInterface(storedFinalScore);
     }
 
-    let pollInterval;
+    let pollTimeout;
     let pollAttempts = 0;
     const MAX_POLL_ATTEMPTS = 30;
+    const DEFAULT_RETRY_MS = 5000;
+
+    function stopPolling() {
+        if (pollTimeout) {
+            clearTimeout(pollTimeout);
+            pollTimeout = null;
+        }
+    }
+
+    function scheduleNextPoll(delayMs) {
+        stopPolling();
+        pollTimeout = setTimeout(fetchDatosDelIntento, delayMs);
+    }
 
     function fetchDatosDelIntento() {
-        pollAttempts++;
-
-        if (!ajaxUrl) {
-            clearInterval(pollInterval);
+        if (!ajaxUrl || !ajaxNonce || !currentQuizId || !currentUserId) {
+            stopPolling();
             return;
         }
+
+        pollAttempts++;
 
         jQuery.ajax({
             url: ajaxUrl,
             type: 'POST',
+            dataType: 'json',
             data: {
                 action: 'get_latest_quiz_activity',
                 quiz_id: currentQuizId,
@@ -1264,70 +1290,72 @@ document.addEventListener('DOMContentLoaded', function () {
                 baseline_activity_id: phpInitialLatestActivityId
             },
             success: function (response) {
-                let shouldStopPolling = false;
+                const data = response && response.data ? response.data : {};
+                const retrySeconds = Number(data.retry_after || DEFAULT_RETRY_MS / 1000);
+                const retryDelay = Math.max(1, retrySeconds) * 1000;
 
-                if (response.success && response.data) {
-                    const latestActivityDetails = response.data.latest_activity_details;
-                    const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages;
-                    const newAttemptFound = response.data.new_attempt_found;
+                if (typeof data.latest_activity_id === 'number') {
+                    phpInitialLatestActivityId = Math.max(phpInitialLatestActivityId, Number(data.latest_activity_id));
+                }
 
-                    if (!isFinalQuiz && chartContainerPromedio && Array.isArray(allAttemptsPercentagesFromAjax) && allAttemptsPercentagesFromAjax.length > 0) {
-                        const totalSum = allAttemptsPercentagesFromAjax.reduce((acc, attempt) => acc + attempt.percentage, 0);
-                        const newAverage = Math.round(totalSum / allAttemptsPercentagesFromAjax.length);
+                if (data.course_id && courseId && Number(data.course_id) !== Number(courseId)) {
+                    updateAttemptStatus('⚠️ No pudimos validar el curso asociado al intento.', 'error');
+                    stopPolling();
+                    return;
+                }
+
+                if (response.success && data.status === 'ready') {
+                    if (!isFinalQuiz && chartContainerPromedio && typeof data.average_percentage === 'number') {
                         radialChartPromedioInstance = ensureChart(
                             radialChartPromedioInstance,
                             chartContainerPromedio,
-                            newAverage,
+                            Math.round(data.average_percentage),
                             'Promedio Polis'
                         );
                     }
 
-                    if (newAttemptFound && latestActivityDetails && latestActivityDetails.score_data) {
+                    const latestActivityDetails = data.latest_activity_details;
+                    if (latestActivityDetails && latestActivityDetails.score_data) {
                         renderAttemptDetails(latestActivityDetails);
 
                         if (isFinalQuiz) {
                             hydrateInterface(latestActivityDetails.score_data.percentage);
                         }
 
-                        shouldStopPolling = true;
-                    } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                        updateAttemptStatus(
-                            `⚠️ No se encontró un nuevo intento después de ${MAX_POLL_ATTEMPTS} comprobaciones.`,
-                            'warning'
-                        );
-                        shouldStopPolling = true;
+                        updateAttemptStatus('✅ Último intento sincronizado correctamente.', 'success');
+                        stopPolling();
+                    } else if (pollAttempts < MAX_POLL_ATTEMPTS) {
+                        updateAttemptStatus('🔍 Esperando que el intento complete su procesamiento…', 'info');
+                        scheduleNextPoll(retryDelay);
                     } else {
-                        updateAttemptStatus(
-                            `🔍 Esperando nuevo intento (mayor que ID: ${phpInitialLatestActivityId}) - Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}`,
-                            'info'
-                        );
+                        updateAttemptStatus('⚠️ No fue posible obtener los datos completos del intento.', 'warning');
+                        stopPolling();
                     }
+                } else if (response.success && data.status === 'pending') {
+                    if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                        updateAttemptStatus('⚠️ El intento aún no está disponible. Por favor, recarga la página más tarde.', 'warning');
+                        stopPolling();
+                        return;
+                    }
+
+                    const message = data.message ? escapeHtml(String(data.message)) : 'Esperando nuevo intento…';
+                    const htmlMessage = `🔍 ${message}<br><small>Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}</small>`;
+                    updateAttemptStatus(htmlMessage, 'info', { allowHtml: true });
+                    scheduleNextPoll(retryDelay);
                 } else {
-                    const errorData = response.data || {};
-                    const continuePolling = errorData.continue_polling;
+                    const message = data && data.message ? escapeHtml(String(data.message)) : 'Error al consultar los intentos.';
 
-                    if (continuePolling && pollAttempts < MAX_POLL_ATTEMPTS) {
-                        const message = errorData.message || 'Esperando nuevo intento...';
-                        updateAttemptStatus(
-                            `🔍 ${message}<br><small>Buscando Activity ID mayor que ${phpInitialLatestActivityId} - Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}</small>`,
-                            'info'
-                        );
-                    } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                        updateAttemptStatus(
-                            '⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.',
-                            'warning'
-                        );
-                        shouldStopPolling = true;
+                    if (pollAttempts >= MAX_POLL_ATTEMPTS || data.continue_polling === false) {
+                        updateAttemptStatus(`⚠️ ${message}`, 'error');
+                        stopPolling();
                     } else {
                         updateAttemptStatus(
-                            `⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...`,
-                            'error'
+                            `⚠️ ${message}<br><small>Reintentando ${pollAttempts}/${MAX_POLL_ATTEMPTS}</small>`,
+                            'warning',
+                            { allowHtml: true }
                         );
+                        scheduleNextPoll(retryDelay);
                     }
-                }
-
-                if (shouldStopPolling) {
-                    clearInterval(pollInterval);
                 }
             },
             error: function () {
@@ -1336,18 +1364,18 @@ document.addEventListener('DOMContentLoaded', function () {
                         `❌ Error de comunicación después de ${MAX_POLL_ATTEMPTS} intentos. Por favor, recarga la página.`,
                         'error'
                     );
-                    clearInterval(pollInterval);
+                    stopPolling();
                 } else {
                     updateAttemptStatus(
                         `⚠️ Error de conexión - Reintentando ${pollAttempts}/${MAX_POLL_ATTEMPTS}...`,
                         'warning'
                     );
+                    scheduleNextPoll(DEFAULT_RETRY_MS);
                 }
             }
         });
     }
 
-    pollInterval = setInterval(fetchDatosDelIntento, 1000);
     fetchDatosDelIntento();
 });
 </script>
