@@ -789,13 +789,34 @@ function politeia_get_latest_quiz_activity() {
         exit;
     }
 
+    $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+    if ( ! wp_verify_nonce( $nonce, 'politeia_quiz_stats' ) ) {
+        error_log( 'AJAX Debug: ERROR - Nonce verification failed.' );
+        wp_send_json_error( array(
+            'message'           => 'Invalid security token.',
+            'continue_polling'  => false,
+        ) );
+        exit;
+    }
+
+    $requested_user_id = isset( $_POST['user_id'] ) ? intval( wp_unslash( $_POST['user_id'] ) ) : 0;
+
     global $wpdb;
 
-    $current_quiz_post_id = isset( $_POST['quiz_id'] ) ? intval( $_POST['quiz_id'] ) : 0;
-    $current_user_id = get_current_user_id();
-    
+    $current_quiz_post_id = isset( $_POST['quiz_id'] ) ? intval( wp_unslash( $_POST['quiz_id'] ) ) : 0;
+    $current_user_id      = get_current_user_id();
+
+    if ( $requested_user_id && $requested_user_id !== $current_user_id ) {
+        error_log( 'AJAX Debug: ERROR - User ID mismatch for quiz activity polling.' );
+        wp_send_json_error( array(
+            'message'           => 'User verification failed.',
+            'continue_polling'  => false,
+        ) );
+        exit;
+    }
+
     // NEW: Get the baseline activity ID from the client (what shortcode had at page load)
-    $baseline_activity_id = isset( $_POST['baseline_activity_id'] ) ? intval( $_POST['baseline_activity_id'] ) : 0;
+    $baseline_activity_id = isset( $_POST['baseline_activity_id'] ) ? intval( wp_unslash( $_POST['baseline_activity_id'] ) ) : 0;
 
     error_log( 'AJAX Debug: Params - Quiz Post ID: ' . $current_quiz_post_id . ', Current User ID: ' . $current_user_id . ', Baseline Activity ID: ' . $baseline_activity_id );
 

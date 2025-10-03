@@ -107,6 +107,82 @@ class Politeia_Quiz_Stats {
 
         return $out;
     }
+
+    /**
+     * Retrieves the latest completed attempt summary for a user on a quiz.
+     *
+     * @param int $user_id
+     * @param int $quiz_id
+     * @return array|null
+     */
+    public static function get_latest_attempt_summary( int $user_id, int $quiz_id ): ?array {
+        if ( ! $user_id || ! $quiz_id ) {
+            return null;
+        }
+
+        global $wpdb;
+
+        $ua  = $wpdb->prefix . 'learndash_user_activity';
+        $uam = $wpdb->prefix . 'learndash_user_activity_meta';
+
+        $attempt = $wpdb->get_row( $wpdb->prepare(
+            "SELECT ua.activity_id, ua.activity_started, ua.activity_completed
+             FROM {$ua} ua
+             INNER JOIN {$uam} m_quiz
+               ON m_quiz.activity_id = ua.activity_id
+              AND m_quiz.activity_meta_key = 'quiz'
+              AND m_quiz.activity_meta_value = %d
+             WHERE ua.user_id = %d
+               AND ua.activity_type = 'quiz'
+             ORDER BY ua.activity_completed DESC, ua.activity_id DESC
+             LIMIT 1",
+            $quiz_id,
+            $user_id
+        ) );
+
+        if ( ! $attempt ) {
+            return null;
+        }
+
+        $meta_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT activity_meta_key, activity_meta_value
+             FROM {$uam}
+             WHERE activity_id = %d",
+            $attempt->activity_id
+        ) );
+
+        if ( empty( $meta_rows ) ) {
+            return null;
+        }
+
+        $meta = [];
+        foreach ( $meta_rows as $row ) {
+            $meta[ $row->activity_meta_key ] = $row->activity_meta_value;
+        }
+
+        $percentage   = isset( $meta['percentage'] ) ? round( floatval( $meta['percentage'] ) ) : 0;
+        $score        = isset( $meta['score'] ) ? intval( $meta['score'] ) : 0;
+        $total_points = isset( $meta['total_points'] ) ? intval( $meta['total_points'] ) : 0;
+
+        return [
+            'activity_id'         => (int) $attempt->activity_id,
+            'percentage'          => $percentage,
+            'score'               => $score,
+            'total_points'        => $total_points,
+            'passed'              => isset( $meta['pass'] ) ? (bool) intval( $meta['pass'] ) : false,
+            'started_timestamp'   => (int) $attempt->activity_started,
+            'completed_timestamp' => (int) $attempt->activity_completed,
+            'started'             => $attempt->activity_started
+                ? wp_date( 'Y-m-d H:i:s', (int) $attempt->activity_started )
+                : '',
+            'completed'           => $attempt->activity_completed
+                ? wp_date( 'Y-m-d H:i:s', (int) $attempt->activity_completed )
+                : '',
+            'duration'            => ( $attempt->activity_completed && $attempt->activity_started )
+                ? max( 0, (int) $attempt->activity_completed - (int) $attempt->activity_started )
+                : 0,
+        ];
+    }
 }
 
 
@@ -237,16 +313,7 @@ class PoliteiaCourse {
             }
         }
 
-        $course_id = $wpdb->get_var( $wpdb->prepare(
-            "SELECT post_id
-             FROM {$wpdb->prefix}learndash_course_steps
-             WHERE step_id = %d
-               AND step_type = 'quiz'
-             LIMIT 1",
-            $quiz_id
-        ) );
-
-        return $course_id ? (int) $course_id : 0;
+        return 0;
     }
 
     public static function find_course_id_by_quiz( $quiz_id ) {

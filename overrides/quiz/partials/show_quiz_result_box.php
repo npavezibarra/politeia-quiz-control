@@ -100,97 +100,173 @@ global $wpdb; // Already globalized above, but good practice if code blocks are 
 $current_user_id = get_current_user_id();
 $quiz_id         = get_the_ID();
 
-// --- Quiz Type and Course Association Logic (no change) ---
+// --- Quiz Type and Course Association Logic using metadata helpers ---
 $analytics = class_exists( 'Politeia_Quiz_Analytics' )
     ? new Politeia_Quiz_Analytics( (int) $quiz_id )
     : null;
 
-$course_id      = $analytics ? $analytics->getCourseId() : 0;
-$is_first_quiz  = $analytics ? $analytics->isFirstQuiz() : false;
-$is_final_quiz  = $analytics ? $analytics->isFinalQuiz() : false;
-$first_quiz_id  = $analytics ? $analytics->getFirstQuizId() : 0;
-$final_quiz_id  = $analytics ? $analytics->getFinalQuizId() : 0;
+$course_id = $analytics
+    ? $analytics->getCourseId()
+    : PoliteiaCourse::getCourseFromQuiz( (int) $quiz_id );
 
-if ( ! $analytics ) {
-    // Fallback legacy detection if helper is unavailable.
-    $course_id_from_first_quiz = $wpdb->get_var( $wpdb->prepare(
-        "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_first_quiz_id' AND meta_value = %d",
-        $quiz_id
-    ) );
-    if ( ! empty( $course_id_from_first_quiz ) ) {
-        $course_id     = $course_id_from_first_quiz;
-        $is_first_quiz = true;
-        $first_quiz_id = (int) get_post_meta( $course_id, '_first_quiz_id', true );
-    }
+$course         = $course_id ? new PoliteiaCourse( $course_id ) : null;
+$first_quiz_id  = $analytics && $analytics->getFirstQuizId()
+    ? $analytics->getFirstQuizId()
+    : ( $course_id ? PoliteiaCourse::getFirstQuizId( $course_id ) : 0 );
+$final_quiz_id  = $analytics && $analytics->getFinalQuizId()
+    ? $analytics->getFinalQuizId()
+    : ( $course_id ? PoliteiaCourse::getFinalQuizId( $course_id ) : 0 );
+$is_first_quiz  = $first_quiz_id && (int) $first_quiz_id === (int) $quiz_id;
+$is_final_quiz  = $final_quiz_id && (int) $final_quiz_id === (int) $quiz_id;
 
-    $course_id_from_final_quiz = $wpdb->get_var( $wpdb->prepare(
-        "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = '_final_quiz_id' AND meta_value = %d",
-        $quiz_id
-    ) );
-    if ( ! empty( $course_id_from_final_quiz ) ) {
-        $course_id     = $course_id_from_final_quiz;
-        $is_final_quiz = true;
-        $final_quiz_id = (int) get_post_meta( $course_id, '_final_quiz_id', true );
-    }
+$course_title         = $course ? $course->getTitle() : '';
+$course_url           = $course_id ? get_permalink( $course_id ) : '';
+$courses_listing_url  = home_url( '/courses/' );
+$related_product_id   = $course ? $course->getRelatedProductId() : 0;
+$product_url          = $related_product_id ? get_permalink( $related_product_id ) : '';
+$user_has_course_access = $course && $current_user_id
+    ? $course->isUserEnrolled( $current_user_id )
+    : false;
+$has_bought = false;
+
+if ( $current_user_id && $related_product_id && function_exists( 'wc_customer_bought_product' ) ) {
+    $has_bought = wc_customer_bought_product( '', $current_user_id, $related_product_id );
 }
 
-// Buscar producto relacionado usando meta_value serializado (no change)
-$related_product_id = null;
-if ( $course_id ) {
-    $like               = '%i:0;i:' . (int) $course_id . ';%';
-    $related_product_id = $wpdb->get_var( $wpdb->prepare(
-        "SELECT post_id FROM $wpdb->postmeta 
-         WHERE meta_key = '_related_course' 
-         AND meta_value LIKE %s",
-        $like
-    ) );
-}
+$first_attempt_summary = null;
+$final_attempt_summary = null;
+$first_quiz_score      = 0;
+$final_quiz_score      = 0;
 
-// Verificar si el usuario compró ese producto (no change)
-$has_bought   = false;
-$order_number = null;
-$order_status = null;
+if ( $current_user_id && class_exists( 'Politeia_Quiz_Stats' ) ) {
+    if ( $first_quiz_id ) {
+        $first_attempt_summary = Politeia_Quiz_Stats::get_latest_attempt_summary( $current_user_id, $first_quiz_id );
+        if ( $first_attempt_summary ) {
+            $first_quiz_score = (int) $first_attempt_summary['percentage'];
+        }
+    }
 
-if ( $current_user_id && $related_product_id ) {
-    $orders = wc_get_orders( array(
-        'customer_id' => $current_user_id,
-        'status'      => array( 'completed', 'processing', 'on-hold', 'course-on-hold' ),
-        'limit'       => -1,
-        'return'      => 'ids',
-    ) );
-
-    foreach ( $orders as $order_id ) {
-        $order = wc_get_order( $order_id );
-        foreach ( $order->get_items() as $item ) {
-            if ( $item->get_product_id() == $related_product_id ) {
-                $has_bought   = true;
-                $order_number = $order->get_order_number();
-                $order_status = $order->get_status();
-                break 2;
-            }
+    if ( $is_final_quiz ) {
+        $final_attempt_summary = Politeia_Quiz_Stats::get_latest_attempt_summary( $current_user_id, $quiz_id );
+        if ( $final_attempt_summary ) {
+            $final_quiz_score = (int) $final_attempt_summary['percentage'];
         }
     }
 }
 
-// Obtener el puntaje del First Quiz si estamos en Final Quiz (no change)
-$first_quiz_score = 0;
-if ( $is_final_quiz && $course_id && $first_quiz_id ) {
-    if ( $current_user_id ) {
-        if ( class_exists( 'Politeia_Quiz_Stats' ) ) {
-            $latest_id = Politeia_Quiz_Stats::get_latest_attempt_id( $current_user_id, $first_quiz_id );
-            if ( $latest_id ) {
-                $data = Politeia_Quiz_Stats::get_score_and_pct_by_activity( $latest_id );
-                if ( $data && isset( $data->percentage ) ) {
-                    $first_quiz_score = round( floatval( $data->percentage ) );
-                }
-            }
-        } else {
-            error_log( 'Politeia_Quiz_Stats class not found when trying to get first quiz score.' );
-        }
+$progress_delta         = null;
+$days_between_attempts  = null;
+if ( $is_final_quiz && $first_attempt_summary && $final_attempt_summary ) {
+    $progress_delta = (int) $final_attempt_summary['percentage'] - (int) $first_attempt_summary['percentage'];
+
+    if ( ! empty( $first_attempt_summary['completed_timestamp'] ) && ! empty( $final_attempt_summary['completed_timestamp'] ) ) {
+        $seconds_between       = max( 0, (int) $final_attempt_summary['completed_timestamp'] - (int) $first_attempt_summary['completed_timestamp'] );
+        $days_between_attempts = (int) floor( $seconds_between / DAY_IN_SECONDS );
     }
 }
+
+$ajax_nonce = wp_create_nonce( 'politeia_quiz_stats' );
+
+$quiz_stats_bootstrap = array(
+    'quizId'               => (int) $quiz_id,
+    'userId'               => (int) $current_user_id,
+    'isFinalQuiz'          => (bool) $is_final_quiz,
+    'hasFirstQuiz'         => (bool) $first_quiz_id,
+    'firstQuizScore'       => (int) $first_quiz_score,
+    'finalQuizStoredScore' => (int) $final_quiz_score,
+    'hasFinalScore'        => (bool) $final_attempt_summary,
+    'progressDelta'        => null === $progress_delta ? null : (int) $progress_delta,
+    'daysBetweenAttempts'  => null === $days_between_attempts ? null : (int) $days_between_attempts,
+    'firstQuizCompleted'   => $first_attempt_summary['completed'] ?? '',
+    'finalQuizCompleted'   => $final_attempt_summary['completed'] ?? '',
+    'ajaxUrl'              => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
+    'nonce'                => $ajax_nonce,
+    'courseUrl'            => $course_url ? esc_url_raw( $course_url ) : '',
+    'productUrl'           => $product_url ? esc_url_raw( $product_url ) : '',
+    'coursesListingUrl'    => esc_url_raw( $courses_listing_url ),
+    'courseTitle'          => $course_title ? wp_strip_all_tags( $course_title ) : '',
+    'hasCourseAccess'      => (bool) $user_has_course_access,
+    'hasPurchased'         => (bool) $has_bought,
+);
+
+$quiz_stats_bootstrap_json = wp_json_encode( $quiz_stats_bootstrap );
+$cta_data_context         = $is_final_quiz ? 'final' : 'first';
+$cta_course_url_attr      = $course_url ? esc_url( $course_url ) : '';
+$cta_product_url_attr     = $product_url ? esc_url( $product_url ) : '';
+$cta_courses_listing_attr = esc_url( $courses_listing_url );
+$cta_course_title_attr    = $course_title ? esc_attr( $course_title ) : '';
 
 ?>
+
+<style>
+.wpProQuiz_results .wpProQuiz_quiz_time,
+.wpProQuiz_results .wpProQuiz_points,
+.wpProQuiz_results .wpProQuiz_points--message {
+    display: none !important;
+}
+
+.politeia-quiz-cta {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.politeia-quiz-cta .button {
+    background: #000;
+    color: #fff;
+    padding: 10px 24px;
+    display: inline-block;
+    text-decoration: none;
+    border-radius: 4px;
+}
+
+.politeia-quiz-encouragement {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 15px;
+    color: #333;
+}
+
+.politeia-quiz-comparison {
+    margin: 30px auto 0;
+    max-width: 640px;
+    background: #f8f8f8;
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid #e1e1e1;
+}
+
+.politeia-quiz-comparison h3 {
+    margin-top: 0;
+    text-align: center;
+}
+
+.politeia-quiz-comparison .metrics {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 15px;
+}
+
+.politeia-quiz-comparison .metric {
+    min-width: 120px;
+    text-align: center;
+}
+
+.politeia-quiz-attempt-status,
+.politeia-quiz-attempt-details {
+    margin: 25px auto 0;
+    max-width: 640px;
+    text-align: center;
+}
+
+.politeia-quiz-attempt-details {
+    background: #f0f8f0;
+    border: 1px solid #4CAF50;
+    padding: 20px;
+    border-radius: 6px;
+}
+</style>
 
 <div style="display: none;" class="wpProQuiz_sending">
     <h4 class="wpProQuiz_header"><?php esc_html_e( 'Results', 'learndash' ); ?></h4>
@@ -261,12 +337,30 @@ if ( $is_final_quiz && $course_id && $first_quiz_id ) {
         </ul>
     </div>
 
-    <div id="datos-del-intento-container">
-        <p style="text-align:center; color:#555;">
+    <div id="quiz-comparison-panel" class="politeia-quiz-comparison" style="display:none;"></div>
+
+    <div id="quiz-encouragement" class="politeia-quiz-encouragement" style="display:none;"></div>
+
+    <div
+        id="quiz-cta-container"
+        class="politeia-quiz-cta"
+        data-context="<?php echo esc_attr( $cta_data_context ); ?>"
+        data-course-url="<?php echo esc_attr( $cta_course_url_attr ); ?>"
+        data-product-url="<?php echo esc_attr( $cta_product_url_attr ); ?>"
+        data-courses-listing-url="<?php echo esc_attr( $cta_courses_listing_attr ); ?>"
+        data-course-title="<?php echo $cta_course_title_attr; ?>"
+        data-has-access="<?php echo $user_has_course_access ? '1' : '0'; ?>"
+        data-has-purchased="<?php echo $has_bought ? '1' : '0'; ?>"
+    ></div>
+
+    <div id="datos-del-intento-status" class="politeia-quiz-attempt-status">
+        <p style="color:#555;">
             Buscando el registro del último intento (mayor a
             <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : '0' ); ?>)…
         </p>
     </div>
+
+    <div id="datos-del-intento-container" class="politeia-quiz-attempt-details" style="display:none;"></div>
 
     <?php
     if ( ! $quiz->isHideResultQuizTime() ) {
@@ -349,266 +443,489 @@ if ( $is_final_quiz && $course_id && $first_quiz_id ) {
         </table>
     <?php endif; ?>
 
-    <?php
-    echo '<div style="margin-top:20px;">';
-
-    if ( $is_first_quiz && $course_id ) {
-        if ( $related_product_id && ! $has_bought ) {
-            $product_link = get_permalink( $related_product_id );
-            echo '<a href="' . esc_url( $product_link ) . '" class="button"'
-               . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
-               . esc_html__( 'Buy Course', 'text-domain' )
-               . '</a>';
-        } else {
-            $course_link = get_permalink( $course_id );
-            echo '<a href="' . esc_url( $course_link ) . '" class="button"'
-               . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
-               . esc_html__( 'Go to Course', 'text-domain' )
-               . '</a>';
-        }
-    } elseif ( $is_final_quiz ) {
-        echo '<a href="' . esc_url( home_url( '/courses/' ) ) . '" class="button"'
-           . ' style="background:black;color:white;padding:10px 20px;text-decoration:none;">'
-           . esc_html__( 'More Courses', 'text-domain' )
-           . '</a>';
-    }
-
-    echo '</div>';
-    ?>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
-document.addEventListener("DOMContentLoaded", function () {
-    const target = document.querySelector(".wpProQuiz_points.wpProQuiz_points--message");
-    if (!target) return;
+document.addEventListener('DOMContentLoaded', function () {
+    const pointsMessage = document.querySelector('.wpProQuiz_points.wpProQuiz_points--message');
+    if (!pointsMessage) {
+        return;
+    }
 
-    const span = target.querySelectorAll("span")[2];
-    if (!span) return;
+    const resultSpans = pointsMessage.querySelectorAll('span');
+    if (!resultSpans.length) {
+        return;
+    }
 
-    const chartContainer         = document.querySelector("#radial-chart");
-    const chartContainerPromedio = document.querySelector("#radial-chart-promedio");
-    const datosDelIntentoContainer = document.getElementById("datos-del-intento-container");
+    const percentageSpan = resultSpans[2];
+    if (!percentageSpan) {
+        return;
+    }
 
-    const isFinalQuiz = <?php echo $is_final_quiz ? 'true' : 'false'; ?>;
-    const firstQuizScore = <?php echo $first_quiz_score; ?>;
-    const polisAverageInitialPHP = <?php echo $polis_average; ?>; 
-    const currentQuizId = <?php echo $quiz_id; ?>;
-    const ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
-    const phpInitialLatestActivityId = <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : '0' ); ?>; 
+    const chartContainer = document.querySelector('#radial-chart');
+    const chartContainerPromedio = document.querySelector('#radial-chart-promedio');
+    const datosDelIntentoContainer = document.getElementById('datos-del-intento-container');
+    const datosDelIntentoStatus = document.getElementById('datos-del-intento-status');
+    const comparisonPanel = document.getElementById('quiz-comparison-panel');
+    const encouragementContainer = document.getElementById('quiz-encouragement');
+    const ctaContainer = document.getElementById('quiz-cta-container');
+    const scoreDiv = document.getElementById('score');
 
-    let FinalScore = 0;
+    const quizStatsBootstrap = <?php echo $quiz_stats_bootstrap_json ? $quiz_stats_bootstrap_json : '{}'; ?> || {};
+    const isFinalQuiz = !!quizStatsBootstrap.isFinalQuiz;
+    const hasFirstQuiz = !!quizStatsBootstrap.hasFirstQuiz;
+    const firstQuizScore = Number(quizStatsBootstrap.firstQuizScore || 0);
+    const storedFinalScore = Number(quizStatsBootstrap.finalQuizStoredScore || 0);
+    const hasFinalScore = !!quizStatsBootstrap.hasFinalScore;
+    const polisAverageInitialPHP = <?php echo (int) $polis_average; ?>;
+    const ajaxUrl = quizStatsBootstrap.ajaxUrl || '';
+    const currentQuizId = Number(quizStatsBootstrap.quizId || <?php echo (int) $quiz_id; ?>);
+    const currentUserId = Number(quizStatsBootstrap.userId || 0);
+    const ajaxNonce = quizStatsBootstrap.nonce || '';
+    const firstQuizCompleted = quizStatsBootstrap.firstQuizCompleted || '';
+    const finalQuizCompleted = quizStatsBootstrap.finalQuizCompleted || '';
+    const baseDaysBetween = typeof quizStatsBootstrap.daysBetweenAttempts === 'number'
+        ? quizStatsBootstrap.daysBetweenAttempts
+        : null;
+
+    const phpInitialLatestActivityId = <?php echo $php_rendered_latest_global_activity_id ? (int) $php_rendered_latest_global_activity_id : 0; ?>;
+
+    let FinalScore = storedFinalScore;
     let FirstScore = firstQuizScore;
 
-    const observer = new MutationObserver(function () {
-        const percentageText = span.innerText.replace('%', '').trim();
-        const percentage = parseFloat(percentageText);
-        if (isNaN(percentage)) return;
+    let radialChartInstance = null;
+    let radialChartPromedioInstance = null;
 
-        FinalScore = percentage;
-        observer.disconnect();
-
-        const options = (value, labelText, colorStart, colorEnd) => ({
-            series: [value],
+    function buildChartOptions(value, labelText) {
+        return {
+            series: [Math.max(0, Math.round(value))],
             chart: { height: 400, type: 'radialBar' },
             plotOptions: {
                 radialBar: {
                     hollow: { size: '60%' },
                     dataLabels: {
                         name: { show: true, offsetY: -10, color: '#666', fontSize: '16px' },
-                        value: { show: true, fontSize: '32px', fontWeight: 600, color: '#111', offsetY: 8, formatter: val => val + '%' }
+                        value: {
+                            show: true,
+                            fontSize: '32px',
+                            fontWeight: 600,
+                            color: '#111',
+                            offsetY: 8,
+                            formatter: function (val) {
+                                return Math.round(val) + '%';
+                            }
+                        }
                     }
                 }
             },
             labels: [labelText],
-            colors: [colorStart],
+            colors: ['#d29d01'],
             fill: {
                 type: 'gradient',
-                gradient: { shade: 'light', type: 'diagonal', gradientToColors: [colorEnd], stops: [0, 100], opacityFrom: 1, opacityTo: 1, angle: 145 }
-            }
-        });
-
-        // Render "Tu Puntaje"
-        if (chartContainer) {
-            new ApexCharts(chartContainer, options(FinalScore, 'Tu Puntaje', '#d29d01', '#ffd000')).render();
-        }
-
-        // Render "Promedio Polis" o "First Score"
-        if (chartContainerPromedio) {
-            if (isFinalQuiz) {
-                new ApexCharts(chartContainerPromedio, options(FirstScore, 'First Score', '#d29d01', '#ffd000')).render();
-            } else {
-                new ApexCharts(chartContainerPromedio, options(polisAverageInitialPHP, 'Promedio Polis', '#d29d01', '#ffd000')).render();
-            }
-        }
-
-        // Si es Final Quiz, mostrar mensaje de progreso
-        const scoreDiv = document.getElementById("score");
-        if (scoreDiv && isFinalQuiz) {
-            const progreso = FinalScore - FirstScore;
-            let mensajeHTML = '';
-
-            if (progreso > 0) {
-                mensajeHTML = `
-                    <h2 style="text-align: center; color: #000;">Congratulations on your progress!</h2>
-                    <p style="font-weight: normal; color: #333; text-align: center;">
-                        You improved your score by <strong style="color: #4CAF50;">+${progreso} points</strong>. Great job!
-                    </p>
-                `;
-            } else if (progreso === 0) {
-                mensajeHTML = `
-                    <h2 style="text-align: center; color: #000;">Congratulations on completing the course!</h2>
-                    <p style="font-weight: normal; color: #333; text-align: center;">
-                        Your knowledge has been reinforced. Your progress was <strong>${progreso} points</strong>.
-                    </p>
-                `;
-            } else {
-                mensajeHTML = `
-                    <h2 style="text-align: center; color: #000;">Keep going – you're not alone!</h2>
-                    <p style="font-weight: normal; color: #333; text-align: center;">
-                        Your score changed by <strong style="color: #D32F2F;">${progreso} points</strong>.
-                        This is uncommon, but nothing to worry about. You can review the lessons and take the Final Quiz again in 10 days.
-                    </p>
-                `;
-            }
-
-            scoreDiv.innerHTML = mensajeHTML;
-        }
-
-        // --- JavaScript Polling for Datos del Intento (MODIFIED) ---
-        let pollInterval;
-        let currentChartPromedioInstance;
-        let pollAttempts = 0;
-        const MAX_POLL_ATTEMPTS = 30; // Increased since we're waiting for a specific condition
-
-        const fetchDatosDelIntento = () => {
-            pollAttempts++;
-
-            jQuery.ajax({
-                url: ajaxUrl,
-                type: 'POST',
-                data: {
-                    action: 'get_latest_quiz_activity',
-                    quiz_id: currentQuizId,
-                    baseline_activity_id: phpInitialLatestActivityId  // Pass the baseline ID
-                },
-                success: function(response) {
-                    let shouldStopPolling = false;
-
-                    if (response.success && response.data) {
-                        const latestActivityDetails = response.data.latest_activity_details;
-                        const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages;
-                        const newAttemptFound = response.data.new_attempt_found;
-
-                        // Solo en First Quiz se actualiza Promedio Polis con AJAX
-                        if (!isFinalQuiz && chartContainerPromedio && allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
-                            let totalSum = 0;
-                            let totalCount = 0;
-                            allAttemptsPercentagesFromAjax.forEach(attempt => {
-                                totalSum += attempt.percentage;
-                                totalCount++;
-                            });
-
-                            let newPolisAverage = 0;
-                            if (totalCount > 0) {
-                                newPolisAverage = Math.round(totalSum / totalCount);
-                            }
-
-                            if (!currentChartPromedioInstance) {
-                                currentChartPromedioInstance = new ApexCharts(chartContainerPromedio, options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
-                                currentChartPromedioInstance.render();
-                            } else {
-                                currentChartPromedioInstance.updateOptions(options(newPolisAverage, 'Promedio Polis', '#d29d01', '#ffd000'));
-                            }
-                        }
-
-                        // SUCCESS: We found the new attempt with complete data
-                        if (newAttemptFound && latestActivityDetails && latestActivityDetails.score_data) {
-                            const scoreData = latestActivityDetails.score_data;
-                            const html = `
-                                <div style="margin: 30px auto; max-width: 600px; padding: 20px; border: 2px solid #4CAF50; font-size: 15px; background-color: #f0f8f0; display:none;">
-                                    <h4 style="margin-bottom: 10px; color: #4CAF50;">✅ Datos del Intento (NUEVO INTENTO ENCONTRADO)</h4>
-                                    <p><strong>Activity ID:</strong> ${latestActivityDetails.activity_id} <em>(Mayor que baseline: ${phpInitialLatestActivityId})</em></p>
-                                    <p><strong>Inicio:</strong> ${latestActivityDetails.started}</p>
-                                    <p><strong>Término:</strong> ${latestActivityDetails.completed}</p>
-                                    <p><strong>Duración:</strong> ${latestActivityDetails.duration} segundos</p>
-                                    <hr style="border-top: 1px solid #4CAF50; margin: 15px 0;">
-                                    <p><strong>Puntaje:</strong> ${scoreData.score} de ${scoreData.total_points}</p>
-                                    <p><strong>Porcentaje:</strong> ${scoreData.percentage}%</p>
-                                    <p><strong>Estado:</strong> ${scoreData.passed ? 'Aprobado' : 'Reprobado'}</p>
-                                </div>
-                            `;
-                            datosDelIntentoContainer.innerHTML = html;
-                            shouldStopPolling = true;
-                        } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                            datosDelIntentoContainer.innerHTML = `
-                                <p style="color:orange; font-weight:bold; text-align:center;">
-                                    ⚠️ No se encontró un nuevo intento después de ${MAX_POLL_ATTEMPTS} intentos.<br>
-                                    <small>Esperaba Activity ID mayor que ${phpInitialLatestActivityId}</small><br>
-                                    Por favor, recarga la página si completaste el quiz.
-                                </p>
-                            `;
-                            shouldStopPolling = true;
-                        } else {
-                            // Still polling - show progress
-                            let loadingMessage = `🔍 Esperando nuevo intento (mayor que ID: ${phpInitialLatestActivityId}) - Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}`;
-                            if (allAttemptsPercentagesFromAjax && allAttemptsPercentagesFromAjax.length > 0) {
-                                loadingMessage += ` | Promedio Polis actualizado ✓`;
-                            }
-                            datosDelIntentoContainer.innerHTML = `<p style="text-align:center; color:#555;">${loadingMessage}</p>`;
-                        }
-                    } else {
-                        // Error response - but check if we should continue polling
-                        const errorData = response.data || {};
-                        const continuePolling = errorData.continue_polling;
-                        
-                        if (continuePolling && pollAttempts < MAX_POLL_ATTEMPTS) {
-                            const message = errorData.message || 'Esperando nuevo intento...';
-                            datosDelIntentoContainer.innerHTML = `
-                                <p style="text-align:center; color:#666;">
-                                    🔍 ${message}<br>
-                                    <small>Buscando Activity ID mayor que ${phpInitialLatestActivityId} - Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}</small>
-                                </p>
-                            `;
-                        } else {
-                            if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                                datosDelIntentoContainer.innerHTML = `<p style="color:orange; font-weight:bold; text-align:center;">⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.</p>`;
-                                shouldStopPolling = true;
-                            } else {
-                                datosDelIntentoContainer.innerHTML = `<p style="color:red; font-weight:bold; text-align:center;">⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...</p>`;
-                            }
-                        }
-                    }
-
-                    if (shouldStopPolling) {
-                        clearInterval(pollInterval);
-                    }
-                },
-                error: function(jqXHR, textStatus, errorThrown) {
-                    console.error('AJAX Error:', textStatus, errorThrown);
-                    
-                    if (pollAttempts >= MAX_POLL_ATTEMPTS) {
-                        datosDelIntentoContainer.innerHTML = `
-                            <p style="color:red; font-weight:bold; text-align:center;">
-                                ❌ Error de comunicación después de ${MAX_POLL_ATTEMPTS} intentos.<br>
-                                Por favor, recarga la página.
-                            </p>
-                        `;
-                        clearInterval(pollInterval);
-                    } else {
-                        datosDelIntentoContainer.innerHTML = `
-                            <p style="color:orange; text-align:center;">
-                                ⚠️ Error de conexión - Reintentando ${pollAttempts}/${MAX_POLL_ATTEMPTS}...
-                            </p>
-                        `;
-                    }
+                gradient: {
+                    shade: 'light',
+                    type: 'diagonal',
+                    gradientToColors: ['#ffd000'],
+                    stops: [0, 100],
+                    opacityFrom: 1,
+                    opacityTo: 1,
+                    angle: 145
                 }
-            });
+            }
         };
+    }
 
-        pollInterval = setInterval(fetchDatosDelIntento, 1000);
-        fetchDatosDelIntento();
+    function ensureChart(instance, container, value, labelText) {
+        if (!container) {
+            return instance;
+        }
+        const options = buildChartOptions(value, labelText);
+        if (!instance) {
+            instance = new ApexCharts(container, options);
+            instance.render();
+        } else {
+            instance.updateOptions(options);
+        }
+        return instance;
+    }
+
+    function formatDelta(delta) {
+        return delta > 0 ? `+${delta}` : `${delta}`;
+    }
+
+    function describeDays(days) {
+        if (typeof days !== 'number') {
+            return '';
+        }
+        if (days === 0) {
+            return 'Mismo día';
+        }
+        if (days === 1) {
+            return '1 día entre intentos';
+        }
+        return `${days} días entre intentos`;
+    }
+
+    function updateScoreContent(finalScore) {
+        if (!scoreDiv) {
+            return;
+        }
+
+        if (isFinalQuiz) {
+            const delta = hasFirstQuiz ? Math.round(finalScore - FirstScore) : null;
+            let heading = '¡Felicitaciones por completar el curso!';
+            let paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong>.`;
+
+            if (hasFirstQuiz && delta !== null) {
+                if (delta > 0) {
+                    paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong> y mejoraste ${formatDelta(delta)} puntos desde tu primer intento.`;
+                } else if (delta === 0) {
+                    paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong>. Mantienes un desempeño constante entre intentos.`;
+                } else {
+                    paragraph = `Tu puntaje final fue <strong>${Math.round(finalScore)}%</strong>. Detectamos una variación de ${formatDelta(delta)} puntos; repasar las lecciones finales puede ayudarte a reforzar lo aprendido.`;
+                }
+            }
+
+            scoreDiv.innerHTML = `
+                <h2 style="text-align:center;color:#000;">${heading}</h2>
+                <p style="text-align:center;color:#333;font-weight:normal;">${paragraph}</p>
+            `;
+        } else {
+            scoreDiv.innerHTML = `
+                <h2 style="text-align:center;color:#000;">Tu puntaje: ${Math.round(finalScore)}%</h2>
+                <p style="text-align:center;color:#555;font-weight:normal;">Tu resultado quedó registrado. ¡Sigue aprendiendo!</p>
+            `;
+        }
+    }
+
+    function renderEncouragement(finalScore) {
+        if (!encouragementContainer) {
+            return;
+        }
+
+        let message = '';
+        if (isFinalQuiz) {
+            if (hasFirstQuiz) {
+                const delta = Math.round(finalScore - FirstScore);
+                if (delta > 0) {
+                    message = `Mejoraste ${formatDelta(delta)} puntos desde tu primer intento. Celebra el avance y comparte tu logro.`;
+                } else if (delta === 0) {
+                    message = 'Mantienes un desempeño constante. Revisa los materiales complementarios para seguir creciendo.';
+                } else {
+                    message = `Hubo una variación de ${formatDelta(delta)} puntos. Repasa las lecciones clave para reforzar tu conocimiento.`;
+                }
+            } else {
+                message = '¡Excelente cierre! Aprovecha el contenido complementario del curso para seguir profundizando.';
+            }
+        } else {
+            if (finalScore >= 90) {
+                message = '¡Impresionante comienzo! Estás listo para profundizar en todas las lecciones del curso.';
+            } else if (finalScore >= 70) {
+                message = 'Vas por muy buen camino. El curso completo te ayudará a convertir este resultado en dominio total.';
+            } else {
+                message = 'Cada intento suma. Inscríbete para acceder a las lecciones paso a paso y elevar tu puntaje.';
+            }
+        }
+
+        if (message) {
+            encouragementContainer.innerHTML = `<p>${message}</p>`;
+            encouragementContainer.style.display = 'block';
+        } else {
+            encouragementContainer.innerHTML = '';
+            encouragementContainer.style.display = 'none';
+        }
+    }
+
+    function renderCTA(finalScore) {
+        if (!ctaContainer) {
+            return;
+        }
+
+        const context = ctaContainer.dataset.context || 'first';
+        const courseUrl = ctaContainer.dataset.courseUrl || '';
+        const productUrl = ctaContainer.dataset.productUrl || '';
+        const listingUrl = ctaContainer.dataset.coursesListingUrl || '';
+        const hasAccess = ctaContainer.dataset.hasAccess === '1';
+        const hasPurchased = ctaContainer.dataset.hasPurchased === '1';
+        const title = ctaContainer.dataset.courseTitle || '';
+
+        let label = '';
+        let href = '';
+        let helper = '';
+
+        if (context === 'final') {
+            href = courseUrl || listingUrl || '#';
+            if (courseUrl && hasAccess) {
+                label = 'Volver al curso';
+                helper = 'Revisa los recursos finales y comparte tu certificado.';
+            } else {
+                label = 'Explorar más cursos';
+                helper = 'Continúa tu camino de aprendizaje con nuevas rutas recomendadas.';
+            }
+        } else {
+            if (hasAccess || hasPurchased || !productUrl) {
+                href = courseUrl || listingUrl || '#';
+                label = courseUrl ? 'Ir al curso' : 'Explorar cursos';
+                helper = title ? `Ingresa a ${title} y continúa tu avance.` : 'Ingresa al curso para continuar tu progreso.';
+            } else {
+                href = productUrl;
+                label = 'Comprar el curso';
+                if (finalScore >= 80) {
+                    helper = 'Aprovecha tu impulso y desbloquea todas las lecciones y evaluaciones.';
+                } else if (finalScore >= 60) {
+                    helper = 'Refuerza los temas clave con acceso completo al contenido del curso.';
+                } else {
+                    helper = 'Obtén el curso completo y avanza con acompañamiento paso a paso.';
+                }
+            }
+        }
+
+        if (!href || href === '#') {
+            ctaContainer.innerHTML = '';
+            ctaContainer.style.display = 'none';
+            return;
+        }
+
+        ctaContainer.innerHTML = `
+            <a class="button" href="${href}">${label}</a>
+            ${helper ? `<p style="margin-top:10px;color:#555;">${helper}</p>` : ''}
+        `;
+        ctaContainer.style.display = 'block';
+    }
+
+    function renderComparison(finalScore) {
+        if (!comparisonPanel) {
+            return;
+        }
+
+        if (!isFinalQuiz || !hasFirstQuiz) {
+            comparisonPanel.innerHTML = '';
+            comparisonPanel.style.display = 'none';
+            return;
+        }
+
+        const delta = Math.round(finalScore - FirstScore);
+        const deltaLabel = formatDelta(delta);
+        const daysCopy = describeDays(baseDaysBetween);
+
+        comparisonPanel.innerHTML = `
+            <h3>Tu progreso entre quizzes</h3>
+            <div class="metrics">
+                <div class="metric">
+                    <strong>First Quiz</strong>
+                    <div style="font-size:24px;">${Math.round(FirstScore)}%</div>
+                    ${firstQuizCompleted ? `<small>${firstQuizCompleted}</small>` : ''}
+                </div>
+                <div class="metric">
+                    <strong>Final Quiz</strong>
+                    <div style="font-size:24px;">${Math.round(finalScore)}%</div>
+                    ${finalQuizCompleted ? `<small>${finalQuizCompleted}</small>` : ''}
+                </div>
+                <div class="metric">
+                    <strong>Cambio</strong>
+                    <div style="font-size:24px;">${deltaLabel}%</div>
+                    ${daysCopy ? `<small>${daysCopy}</small>` : ''}
+                </div>
+            </div>
+        `;
+        comparisonPanel.style.display = 'block';
+    }
+
+    function hydrateInterface(finalScore) {
+        FinalScore = Math.max(0, Math.round(finalScore));
+        updateScoreContent(FinalScore);
+        renderEncouragement(FinalScore);
+        renderCTA(FinalScore);
+        renderComparison(FinalScore);
+
+        radialChartInstance = ensureChart(
+            radialChartInstance,
+            chartContainer,
+            FinalScore,
+            'Tu Puntaje'
+        );
+
+        if (isFinalQuiz && !hasFirstQuiz) {
+            if (radialChartPromedioInstance) {
+                radialChartPromedioInstance.destroy();
+                radialChartPromedioInstance = null;
+            }
+            if (chartContainerPromedio) {
+                chartContainerPromedio.innerHTML = '<p style="text-align:center;color:#777;">Sin datos del First Quiz configurado.</p>';
+            }
+        } else {
+            const secondaryValue = isFinalQuiz ? FirstScore : polisAverageInitialPHP;
+            const secondaryLabel = isFinalQuiz ? 'First Score' : 'Promedio Polis';
+
+            radialChartPromedioInstance = ensureChart(
+                radialChartPromedioInstance,
+                chartContainerPromedio,
+                secondaryValue,
+                secondaryLabel
+            );
+        }
+    }
+
+    function updateAttemptStatus(message, tone = 'info') {
+        if (!datosDelIntentoStatus) {
+            return;
+        }
+        const colors = {
+            info: '#555',
+            warning: '#D57A00',
+            error: '#D32F2F',
+            success: '#2E7D32'
+        };
+        datosDelIntentoStatus.innerHTML = `<p style="color:${colors[tone] || colors.info};">${message}</p>`;
+        datosDelIntentoStatus.style.display = 'block';
+    }
+
+    function renderAttemptDetails(attemptData) {
+        if (!datosDelIntentoContainer) {
+            return;
+        }
+
+        datosDelIntentoContainer.innerHTML = `
+            <h4 style="margin-bottom:12px;color:#2E7D32;">✅ Datos del Intento</h4>
+            <p><strong>Activity ID:</strong> ${attemptData.activity_id}</p>
+            <p><strong>Inicio:</strong> ${attemptData.started}</p>
+            <p><strong>Término:</strong> ${attemptData.completed}</p>
+            <p><strong>Duración:</strong> ${attemptData.duration} segundos</p>
+            <hr style="margin:16px 0;border-top:1px solid #c8e6c9;" />
+            <p><strong>Puntaje:</strong> ${attemptData.score_data.score} de ${attemptData.score_data.total_points}</p>
+            <p><strong>Porcentaje:</strong> ${attemptData.score_data.percentage}%</p>
+            <p><strong>Estado:</strong> ${attemptData.score_data.passed ? 'Aprobado' : 'Reprobado'}</p>
+        `;
+        datosDelIntentoContainer.style.display = 'block';
+        if (datosDelIntentoStatus) {
+            datosDelIntentoStatus.style.display = 'none';
+        }
+    }
+
+    const observer = new MutationObserver(function () {
+        const percentageText = percentageSpan.innerText.replace('%', '').trim();
+        const percentage = parseFloat(percentageText);
+        if (isNaN(percentage)) {
+            return;
+        }
+
+        observer.disconnect();
+        hydrateInterface(percentage);
     });
 
-    observer.observe(span, { childList: true, characterData: true, subtree: true });
+    observer.observe(percentageSpan, { childList: true, characterData: true, subtree: true });
+
+    if (hasFinalScore) {
+        hydrateInterface(storedFinalScore);
+    }
+
+    let pollInterval;
+    let pollAttempts = 0;
+    const MAX_POLL_ATTEMPTS = 30;
+
+    function fetchDatosDelIntento() {
+        pollAttempts++;
+
+        if (!ajaxUrl) {
+            clearInterval(pollInterval);
+            return;
+        }
+
+        jQuery.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'get_latest_quiz_activity',
+                quiz_id: currentQuizId,
+                user_id: currentUserId,
+                nonce: ajaxNonce,
+                baseline_activity_id: phpInitialLatestActivityId
+            },
+            success: function (response) {
+                let shouldStopPolling = false;
+
+                if (response.success && response.data) {
+                    const latestActivityDetails = response.data.latest_activity_details;
+                    const allAttemptsPercentagesFromAjax = response.data.all_attempts_percentages;
+                    const newAttemptFound = response.data.new_attempt_found;
+
+                    if (!isFinalQuiz && chartContainerPromedio && Array.isArray(allAttemptsPercentagesFromAjax) && allAttemptsPercentagesFromAjax.length > 0) {
+                        const totalSum = allAttemptsPercentagesFromAjax.reduce((acc, attempt) => acc + attempt.percentage, 0);
+                        const newAverage = Math.round(totalSum / allAttemptsPercentagesFromAjax.length);
+                        radialChartPromedioInstance = ensureChart(
+                            radialChartPromedioInstance,
+                            chartContainerPromedio,
+                            newAverage,
+                            'Promedio Polis'
+                        );
+                    }
+
+                    if (newAttemptFound && latestActivityDetails && latestActivityDetails.score_data) {
+                        renderAttemptDetails(latestActivityDetails);
+
+                        if (isFinalQuiz) {
+                            hydrateInterface(latestActivityDetails.score_data.percentage);
+                        }
+
+                        shouldStopPolling = true;
+                    } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                        updateAttemptStatus(
+                            `⚠️ No se encontró un nuevo intento después de ${MAX_POLL_ATTEMPTS} comprobaciones.`,
+                            'warning'
+                        );
+                        shouldStopPolling = true;
+                    } else {
+                        updateAttemptStatus(
+                            `🔍 Esperando nuevo intento (mayor que ID: ${phpInitialLatestActivityId}) - Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}`,
+                            'info'
+                        );
+                    }
+                } else {
+                    const errorData = response.data || {};
+                    const continuePolling = errorData.continue_polling;
+
+                    if (continuePolling && pollAttempts < MAX_POLL_ATTEMPTS) {
+                        const message = errorData.message || 'Esperando nuevo intento...';
+                        updateAttemptStatus(
+                            `🔍 ${message}<br><small>Buscando Activity ID mayor que ${phpInitialLatestActivityId} - Intento ${pollAttempts}/${MAX_POLL_ATTEMPTS}</small>`,
+                            'info'
+                        );
+                    } else if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                        updateAttemptStatus(
+                            '⚠️ Fallo al cargar los detalles del intento después de varios intentos. Por favor, recarga la página o inténtalo más tarde.',
+                            'warning'
+                        );
+                        shouldStopPolling = true;
+                    } else {
+                        updateAttemptStatus(
+                            `⚠️ Error al cargar datos del intento. Reintento ${pollAttempts}/${MAX_POLL_ATTEMPTS}...`,
+                            'error'
+                        );
+                    }
+                }
+
+                if (shouldStopPolling) {
+                    clearInterval(pollInterval);
+                }
+            },
+            error: function () {
+                if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                    updateAttemptStatus(
+                        `❌ Error de comunicación después de ${MAX_POLL_ATTEMPTS} intentos. Por favor, recarga la página.`,
+                        'error'
+                    );
+                    clearInterval(pollInterval);
+                } else {
+                    updateAttemptStatus(
+                        `⚠️ Error de conexión - Reintentando ${pollAttempts}/${MAX_POLL_ATTEMPTS}...`,
+                        'warning'
+                    );
+                }
+            }
+        });
+    }
+
+    pollInterval = setInterval(fetchDatosDelIntento, 1000);
+    fetchDatosDelIntento();
 });
 </script>
 
