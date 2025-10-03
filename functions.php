@@ -342,54 +342,189 @@ function politeia_clear_notices_on_checkout_from_link() {
 
 /* SOBREESCRIBIR QUIZ DUANDO NO HAY 100% LESSONS COMPLETE */
 
-add_action('template_redirect', 'politeia_block_final_quiz_if_no_progress');
+function politeia_get_final_quiz_access_requirements( $quiz_id, $user_id ) {
+    $status = [
+        'course_id'            => 0,
+        'final_quiz_id'        => 0,
+        'is_final_quiz'        => false,
+        'is_enrolled'          => false,
+        'has_completed'        => false,
+        'progress_percentage'  => 0,
+        'product_id'           => 0,
+        'has_access'           => true,
+    ];
+
+    if ( ! $quiz_id ) {
+        return $status;
+    }
+
+    $analytics = class_exists( 'Politeia_Quiz_Analytics' )
+        ? new Politeia_Quiz_Analytics( (int) $quiz_id )
+        : null;
+
+    if ( ! $analytics ) {
+        return $status;
+    }
+
+    $status['course_id']     = $analytics->getCourseId();
+    $status['final_quiz_id'] = $analytics->getFinalQuizId();
+    $status['is_final_quiz'] = $status['final_quiz_id'] && (int) $quiz_id === (int) $status['final_quiz_id'];
+
+    if ( ! $status['is_final_quiz'] ) {
+        return $status;
+    }
+
+    $status['has_access'] = false;
+
+    if ( ! $user_id ) {
+        return $status;
+    }
+
+    if ( ! $status['course_id'] ) {
+        return $status;
+    }
+
+    $course = new PoliteiaCourse( $status['course_id'] );
+
+    $status['product_id'] = $course->getRelatedProductId();
+
+    $enrolled = $course->isUserEnrolled( $user_id );
+
+    if ( ! $enrolled && $status['product_id'] ) {
+        $order_finder = class_exists( 'PoliteiaOrderFinder' ) ? new PoliteiaOrderFinder() : null;
+        if ( $order_finder ) {
+            $order_id = $order_finder->findOrderForUser( $user_id, $status['product_id'] );
+            $enrolled = (bool) $order_id;
+        }
+    }
+
+    $status['is_enrolled'] = $enrolled;
+
+    if ( function_exists( 'learndash_course_progress' ) ) {
+        $progress_data = learndash_course_progress( [
+            'user_id'   => $user_id,
+            'course_id' => $status['course_id'],
+            'array'     => true,
+        ] );
+
+        if ( isset( $progress_data['percentage'] ) ) {
+            $status['progress_percentage'] = (int) $progress_data['percentage'];
+        }
+
+        if ( isset( $progress_data['completed'], $progress_data['total'] ) && (int) $progress_data['total'] > 0 ) {
+            $status['has_completed'] = (int) $progress_data['completed'] >= (int) $progress_data['total'];
+        }
+    }
+
+    if ( ! $status['has_completed'] && method_exists( $course, 'hasCompletedAllLessons' ) ) {
+        $status['has_completed'] = $course->hasCompletedAllLessons( $user_id );
+    }
+
+    $status['has_access'] = $status['is_enrolled'] && $status['has_completed'];
+
+    return $status;
+}
+
+function isFinalQuizAccessible( $quiz_id, $user_id ) {
+    $status = politeia_get_final_quiz_access_requirements( $quiz_id, $user_id );
+
+    if ( ! $status['is_final_quiz'] ) {
+        return true;
+    }
+
+    return (bool) $status['has_access'];
+}
+
+add_action( 'template_redirect', 'politeia_block_final_quiz_if_no_progress' );
 function politeia_block_final_quiz_if_no_progress() {
-    if (!is_singular('sfwd-quiz') || !is_user_logged_in()) {
+    if ( ! is_singular( 'sfwd-quiz' ) ) {
         return;
     }
 
     global $post;
 
     $quiz_id = $post->ID;
-    $user_id = get_current_user_id();
 
-    // Detect associated course and verify Final Quiz
     $analytics = class_exists( 'Politeia_Quiz_Analytics' )
         ? new Politeia_Quiz_Analytics( (int) $quiz_id )
         : null;
 
-    if ( ! $analytics || ! $analytics->isFinalQuiz() ) {
+    if ( ! $analytics ) {
         return;
     }
 
-    $course_id_final = $analytics->getCourseId();
+    $first_quiz_id = $analytics->getFirstQuizId();
+    $final_quiz_id = $analytics->getFinalQuizId();
 
-    if ( ! $course_id_final ) {
+    $is_first_quiz = $first_quiz_id && (int) $quiz_id === (int) $first_quiz_id;
+    $is_final_quiz = $final_quiz_id && (int) $quiz_id === (int) $final_quiz_id;
+
+    if ( $is_first_quiz ) {
+        if ( is_user_logged_in() ) {
+            return;
+        }
+
+        $login_url    = esc_url( wp_login_url( get_permalink( $quiz_id ) ) );
+        $register_url = esc_url( wp_registration_url() );
+
+        $message  = '<div style="text-align:center; padding: 3em; border: 2px dashed #ccc; background: #fff;">';
+        $message .= '<h2 style="color:#111; font-size: 1.5em;">' . esc_html__( 'Please log in to start the First Quiz.', 'text-domain' ) . '</h2>';
+        $message .= '<div style="margin-top:2em; display:flex; gap:1em; justify-content:center; flex-wrap:wrap;">';
+        $message .= '<a href="' . $login_url . '" style="display:inline-block; padding:0.85em 1.5em; background:black; color:#fff; font-weight:bold; border-radius:6px; text-decoration:none;">' . esc_html__( 'Log In', 'text-domain' ) . '</a>';
+        if ( get_option( 'users_can_register' ) ) {
+            $message .= '<a href="' . $register_url . '" style="display:inline-block; padding:0.85em 1.5em; background:#f5f5f5; color:#111; font-weight:bold; border-radius:6px; text-decoration:none; border:1px solid #ccc;">' . esc_html__( 'Register', 'text-domain' ) . '</a>';
+        }
+        $message .= '</div>';
+        $message .= '</div>';
+
+        wp_die( $message, '', [ 'response' => 200 ] );
+    }
+
+    if ( ! $is_final_quiz ) {
         return;
     }
 
-    // Check course progress
-    $progress_data = learndash_course_progress([
-        'user_id'   => $user_id,
-        'course_id' => $course_id_final,
-        'array'     => true
-    ]);
-    $progress = isset($progress_data['percentage']) ? intval($progress_data['percentage']) : 0;
+    if ( ! is_user_logged_in() ) {
+        $login_url = esc_url( wp_login_url( get_permalink( $quiz_id ) ) );
 
-    if ($progress >= 100) return;
+        $message  = '<div style="text-align:center; padding: 3em; border: 2px dashed #ccc; background: #fff;">';
+        $message .= '<h2 style="color:#111; font-size: 1.5em;">' . esc_html__( 'Please log in to continue to the Final Quiz.', 'text-domain' ) . '</h2>';
+        $message .= '<a href="' . $login_url . '" style="display:inline-block; margin-top:2em; padding:0.85em 1.5em; background:black; color:#fff; font-weight:bold; border-radius:6px; text-decoration:none;">' . esc_html__( 'Log In', 'text-domain' ) . '</a>';
+        $message .= '</div>';
 
-    // If course not completed, intercept and display message
-    wp_die(
-        '<div style="text-align:center; padding: 3em; border: 2px dashed #ccc; background: #fff;">
-            <h2 style="color:#b71c1c; font-size: 1.5em;">' . esc_html__('You must complete all course lessons before taking the Final Quiz.', 'text-domain') . '</h2>
-            <a href="' . esc_url(get_permalink($course_id_final)) . '" 
-                style="display:inline-block; margin-top:2em; padding:0.85em 1.5em; background:black; color:#fff; font-weight:bold; border-radius:6px; text-decoration:none;">
-                ' . esc_html__('Resume Course', 'text-domain') . '
-            </a>
-        </div>',
-        '',
-        ['response' => 200]
-    );
+        wp_die( $message, '', [ 'response' => 200 ] );
+    }
+
+    $user_id = get_current_user_id();
+
+    if ( isFinalQuizAccessible( $quiz_id, $user_id ) ) {
+        return;
+    }
+
+    $requirements = politeia_get_final_quiz_access_requirements( $quiz_id, $user_id );
+    $course_id    = $requirements['course_id'];
+    $course_url   = $course_id ? get_permalink( $course_id ) : home_url();
+
+    $message  = '<div style="text-align:center; padding: 3em; border: 2px dashed #ccc; background: #fff;">';
+
+    if ( ! $requirements['is_enrolled'] ) {
+        $purchase_url = $requirements['product_id'] ? get_permalink( $requirements['product_id'] ) : $course_url;
+
+        $message .= '<h2 style="color:#111; font-size: 1.5em;">' . esc_html__( 'Purchase the course to unlock the Final Quiz.', 'text-domain' ) . '</h2>';
+        $message .= '<a href="' . esc_url( $purchase_url ) . '" style="display:inline-block; margin-top:2em; padding:0.85em 1.5em; background:black; color:#fff; font-weight:bold; border-radius:6px; text-decoration:none;">' . esc_html__( 'View Course Options', 'text-domain' ) . '</a>';
+    } else {
+        $message .= '<h2 style="color:#111; font-size: 1.5em;">' . esc_html__( 'Complete all lessons to unlock the Final Quiz.', 'text-domain' ) . '</h2>';
+
+        if ( $requirements['progress_percentage'] ) {
+            $message .= '<p style="margin-top:1em; color:#555;">' . sprintf( esc_html__( 'Current progress: %s%% complete.', 'text-domain' ), (int) $requirements['progress_percentage'] ) . '</p>';
+        }
+
+        $message .= '<a href="' . esc_url( $course_url ) . '" style="display:inline-block; margin-top:2em; padding:0.85em 1.5em; background:black; color:#fff; font-weight:bold; border-radius:6px; text-decoration:none;">' . esc_html__( 'Resume Course', 'text-domain' ) . '</a>';
+    }
+
+    $message .= '</div>';
+
+    wp_die( $message, '', [ 'response' => 200 ] );
 }
 
 
