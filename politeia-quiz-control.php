@@ -105,8 +105,7 @@ public function enqueue_frontend_assets(): void {
             return;
         }
 
-        require_once PQC_PLUGIN_DIR . 'admin/class-metabox-first-quiz.php';
-        require_once PQC_PLUGIN_DIR . 'admin/class-metabox-final-quiz.php';
+        require_once PQC_PLUGIN_DIR . 'admin/class-metabox-quiz-select2.php';
 
         new PQC_Metabox_First_Quiz();
         new PQC_Metabox_Final_Quiz();
