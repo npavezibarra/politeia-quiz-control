@@ -91,7 +91,9 @@ $prog = learndash_course_progress( array(
 $all_done = isset( $prog['completed'], $prog['total'] ) && ( (int) $prog['completed'] >= (int) $prog['total'] );
 
 // 3) Recuperar ID de Final Quiz y sus intentos
-$final_quiz_id = get_post_meta( $course_id, '_final_quiz_id', true );
+$final_quiz_id = class_exists( 'PoliteiaCourse' )
+    ? PoliteiaCourse::getFinalQuizId( (int) $course_id )
+    : (int) get_post_meta( $course_id, '_final_quiz_id', true );
 $attempts      = array();
 if ( $final_quiz_id ) {
     $attempts = learndash_get_user_quiz_attempts( $user_id, $final_quiz_id );

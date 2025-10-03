@@ -65,7 +65,7 @@ function politeia_course_debug_table_refactored( $content ) {
 
     $first_quiz_completed = false; // Asumiendo que esta lógica puede ir en otro lado o se simplifica.
     if ( class_exists('Politeia_Quiz_Stats') ) {
-        $attempts = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, $course->getFirstQuizId() );
+        $attempts = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, PoliteiaCourse::getFirstQuizId( $course->id ) );
         $first_quiz_completed = ! empty( $attempts );
     }
 
@@ -77,8 +77,8 @@ function politeia_course_debug_table_refactored( $content ) {
         <tr><td><strong>Username:</strong></td><td><?php echo esc_html( $user_data->user_login ); ?></td></tr>
         <tr><td><strong>Course ID:</strong></td><td><?php echo esc_html( $course->id ); ?></td></tr>
         <tr><td><strong>Related Product:</strong></td><td><?php echo $product_id ?: 'NO ENCONTRADO'; ?></td></tr>
-        <tr><td><strong>First Quiz ID:</strong></td><td><?php echo $course->getFirstQuizId() ?: 'NO ASIGNADO'; ?></td></tr>
-        <tr><td><strong>Final Quiz ID:</strong></td><td><?php echo $course->getFinalQuizId() ?: 'NO ASIGNADO'; ?></td></tr>
+        <tr><td><strong>First Quiz ID:</strong></td><td><?php echo PoliteiaCourse::getFirstQuizId( $course->id ) ?: 'NO ASIGNADO'; ?></td></tr>
+        <tr><td><strong>Final Quiz ID:</strong></td><td><?php echo PoliteiaCourse::getFinalQuizId( $course->id ) ?: 'NO ASIGNADO'; ?></td></tr>
         <tr><td><strong>First Quiz Completed:</strong></td><td><?php echo $first_quiz_completed ? 'TRUE' : 'FALSE'; ?></td></tr>
         <tr><td><strong>ID de Orden (wp_posts.ID):</strong></td><td><?php echo $order_id ?: 'NO'; ?></td></tr>
         <tr><td><strong>Bought?</strong></td><td><?php echo $order_id ? 'YES' : 'NO'; ?></td></tr>
@@ -116,7 +116,7 @@ function politeia_maybe_complete_order_from_debug_table() {
     // Verificar si se completó el First Quiz
     $first_quiz_completed = false;
     if ( class_exists('Politeia_Quiz_Stats') ) {
-        $attempts = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, $course->getFirstQuizId() );
+        $attempts = Politeia_Quiz_Stats::get_all_attempts_data( $user_id, PoliteiaCourse::getFirstQuizId( $course->id ) );
         $first_quiz_completed = ! empty( $attempts );
     }
 
@@ -150,33 +150,15 @@ function politeia_maybe_complete_order_from_debug_table() {
      error_log("HOOK learndash_quiz_completed triggered for user ID: $user_id and quiz ID: $quiz_id_completed");
      error_log("Comprobando finalización de quiz. User ID: $user_id | Quiz ID: $quiz_id_completed");
  
-     // 2. Usar la clase para encontrar el curso al que pertenece el quiz
-     $course_id = 0;
-     $course_query = new WP_Query([
-         'post_type'  => 'sfwd-courses',
-         'fields'     => 'ids',
-         'posts_per_page' => 1,
-         'meta_query' => [
-             'relation' => 'OR',
-             [
-                 'key'   => '_first_quiz_id',
-                 'value' => $quiz_id_completed
-             ],
-             [
-                 'key'   => '_final_quiz_id',
-                 'value' => $quiz_id_completed
-             ]
-         ]
-     ]);
- 
-     if ( $course_query->have_posts() ) {
-         $course_id = $course_query->posts[0];
-     }
- 
-     if ( ! $course_id ) {
-         error_log("No se encontró curso asociado al quiz ID: $quiz_id_completed");
-         return;
-     }
+    // 2. Usar helper para encontrar el curso al que pertenece el quiz
+    $course_id = class_exists( 'PoliteiaCourse' )
+        ? PoliteiaCourse::getCourseFromQuiz( (int) $quiz_id_completed )
+        : 0;
+
+    if ( ! $course_id ) {
+        error_log("No se encontró curso asociado al quiz ID: $quiz_id_completed");
+        return;
+    }
  
      // 3. Obtener producto relacionado usando la clase
      $course     = new PoliteiaCourse( $course_id );
@@ -225,7 +207,7 @@ function politeia_show_quiz_gate_message( $course_id, $user_id ) {
     }
 
     $course        = new PoliteiaCourse( $course_id );
-    $first_quiz_id = $course->getFirstQuizId();
+    $first_quiz_id = PoliteiaCourse::getFirstQuizId( $course->id );
     if ( ! $first_quiz_id ) {
         return;
     }
@@ -366,24 +348,25 @@ function politeia_block_final_quiz_if_no_progress() {
         return;
     }
 
-    global $post, $wpdb;
+    global $post;
 
     $quiz_id = $post->ID;
     $user_id = get_current_user_id();
 
-    // Detect associated course
-    $course_id_final = $wpdb->get_var( $wpdb->prepare( "
-        SELECT post_id FROM {$wpdb->postmeta}
-        WHERE meta_key = '_final_quiz_id' AND meta_value = %d
-        LIMIT 1
-    ", $quiz_id ) );
+    // Detect associated course and verify Final Quiz
+    $analytics = class_exists( 'Politeia_Quiz_Analytics' )
+        ? new Politeia_Quiz_Analytics( (int) $quiz_id )
+        : null;
 
-    if (!$course_id_final) return;
+    if ( ! $analytics || ! $analytics->isFinalQuiz() ) {
+        return;
+    }
 
-    $final_quiz_id = get_post_meta($course_id_final, '_final_quiz_id', true);
-    $is_final_quiz = (int)$quiz_id === (int)$final_quiz_id;
+    $course_id_final = $analytics->getCourseId();
 
-    if (!$is_final_quiz) return;
+    if ( ! $course_id_final ) {
+        return;
+    }
 
     // Check course progress
     $progress_data = learndash_course_progress([

@@ -82,13 +82,21 @@ function pqc_get_first_quiz_email_content( $quiz_data, $user ) {
     $chart_url_avg   = politeia_generate_quickchart_url( $avg_score );
     $quiz_id         = isset( $quiz_data['quiz'] ) ? intval( $quiz_data['quiz'] ) : 0;
 
-    $course_id = $wpdb->get_var( $wpdb->prepare( "
-        SELECT post_id
-        FROM {$wpdb->postmeta}
-        WHERE meta_key = '_first_quiz_id'
-          AND meta_value = %d
-        LIMIT 1
-    ", $quiz_id ) );
+    $analytics = class_exists( 'Politeia_Quiz_Analytics' )
+        ? new Politeia_Quiz_Analytics( (int) $quiz_id )
+        : null;
+
+    if ( $analytics ) {
+        $course_id = $analytics->getCourseId();
+    } else {
+        $course_id = $wpdb->get_var( $wpdb->prepare( "
+            SELECT post_id
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = '_first_quiz_id'
+              AND meta_value = %d
+            LIMIT 1
+        ", $quiz_id ) );
+    }
 
     $course_title = get_the_title( $course_id );
     $course_url   = $course_id ? get_permalink( $course_id ) : home_url();

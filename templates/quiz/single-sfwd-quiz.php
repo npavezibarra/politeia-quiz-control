@@ -61,29 +61,39 @@ $current_user_id = get_current_user_id();
 $quiz_id         = get_the_ID();
 $quiz_title      = get_the_title( $quiz_id );
 
-$course_id_first = $wpdb->get_var( $wpdb->prepare( "
-    SELECT post_id
-    FROM {$wpdb->postmeta}
-    WHERE meta_key = '_first_quiz_id'
-      AND meta_value = %d
-    LIMIT 1
-", $quiz_id ) );
+$analytics = class_exists( 'Politeia_Quiz_Analytics' )
+    ? new Politeia_Quiz_Analytics( (int) $quiz_id )
+    : null;
 
-$course_id_final = $wpdb->get_var( $wpdb->prepare( "
-    SELECT post_id
-    FROM {$wpdb->postmeta}
-    WHERE meta_key = '_final_quiz_id'
-      AND meta_value = %d
-    LIMIT 1
-", $quiz_id ) );
+if ( $analytics ) {
+    $course_id     = $analytics->getCourseId();
+    $first_quiz_id = $analytics->getFirstQuizId();
+    $final_quiz_id = $analytics->getFinalQuizId();
+    $is_first_quiz = $analytics->isFirstQuiz();
+    $is_final_quiz = $analytics->isFinalQuiz();
+} else {
+    $course_id_first = $wpdb->get_var( $wpdb->prepare( "
+        SELECT post_id
+        FROM {$wpdb->postmeta}
+        WHERE meta_key = '_first_quiz_id'
+          AND meta_value = %d
+        LIMIT 1
+    ", $quiz_id ) );
 
-$course_id = $course_id_first ?: $course_id_final;
+    $course_id_final = $wpdb->get_var( $wpdb->prepare( "
+        SELECT post_id
+        FROM {$wpdb->postmeta}
+        WHERE meta_key = '_final_quiz_id'
+          AND meta_value = %d
+        LIMIT 1
+    ", $quiz_id ) );
 
-$first_quiz_id = get_post_meta( $course_id, '_first_quiz_id', true );
-$final_quiz_id = get_post_meta( $course_id, '_final_quiz_id', true );
-
-$is_first_quiz = ( (int) $quiz_id === (int) $first_quiz_id );
-$is_final_quiz = ( (int) $quiz_id === (int) $final_quiz_id );
+    $course_id     = $course_id_first ?: $course_id_final;
+    $first_quiz_id = $course_id ? get_post_meta( $course_id, '_first_quiz_id', true ) : 0;
+    $final_quiz_id = $course_id ? get_post_meta( $course_id, '_final_quiz_id', true ) : 0;
+    $is_first_quiz = ( (int) $quiz_id === (int) $first_quiz_id );
+    $is_final_quiz = ( (int) $quiz_id === (int) $final_quiz_id );
+}
 
 $course_title = $course_id ? get_the_title( $course_id ) : 'N/A';
 
