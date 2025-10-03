@@ -158,14 +158,6 @@ $has_polis_obj = class_exists( 'PoliteiaCourse' );
                             <?php endif; ?>
                         </div>
 
-                        <?php if ( current_user_can( 'manage_options' ) ) : ?>
-                            <div class="pqc-course-archive__debug" style="display:none">
-                                <p>Course ID: <?php echo esc_html( $course_id ); ?></p>
-                                <p>First Quiz ID: <?php echo esc_html( $first_quiz_id ?: 0 ); ?></p>
-                                <p>Final Quiz ID: <?php echo esc_html( $final_quiz_id ?: 0 ); ?></p>
-                                <p>Product ID: <?php echo esc_html( $related_product_id ?: 0 ); ?></p>
-                            </div>
-                        <?php endif; ?>
                     </article>
                     <?php
                 endwhile;

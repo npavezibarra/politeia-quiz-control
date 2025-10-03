@@ -424,34 +424,6 @@ $cta_summary_url_attr      = $course_summary_url ? esc_url( $course_summary_url 
         </div>
     </div>
 
-    <div style="margin: 10px auto; max-width: 600px; padding: 10px 20px; border: 1px dashed #eee; font-size: 14px; text-align: center; background-color: #f9f9f9; display:none;">
-        <strong>LATEST ACTIVITY ID (PHP Render - Global):</strong>
-        <?php echo esc_html( $php_rendered_latest_global_activity_id ? $php_rendered_latest_global_activity_id : 'N/A' ); ?>
-        <br>
-        <small style="color:#777;">
-            (This is the *global* activity ID available in the database at the moment the page loads)
-        </small>
-    </div>
-
-    <div style="margin: 10px auto; max-width: 600px; padding: 10px 20px; border: 1px dashed #eee; font-size: 14px; text-align: center; background-color: #f9f9f9; color: blue; display:none;">
-        <strong>PHP Calculated Promedio Polis (initial chart value – from shortcode):</strong>
-        <?php echo esc_html( $polis_average ); ?>%<br>
-        <strong>PHP Calculated Polis Attempts Count (initial chart value – from shortcode):</strong>
-        <?php echo esc_html( $polis_attempts_count ); ?><br>
-        <strong>Attempts Considered for PHP Initial Average (from shortcode data):</strong>
-        <ul style="text-align: left; margin: 5px auto; padding-left: 20px;">
-            <?php
-            if ( ! empty( $polis_attempts_list_for_display ) ) {
-                foreach ( $polis_attempts_list_for_display as $attempt ) {
-                    echo '<li>ID: ' . esc_html( $attempt['id'] ) . ' – ' . esc_html( $attempt['percentage'] ) . '%</li>';
-                }
-            } else {
-                echo '<li>No attempts considered for initial average.</li>';
-            }
-            ?>
-        </ul>
-    </div>
-
     <div id="quiz-messages" class="politeia-quiz-messages"></div>
 
     <?php if ( $is_final_quiz ) : ?>
@@ -556,17 +528,6 @@ $cta_summary_url_attr      = $course_summary_url ? esc_url( $course_summary_url 
         );
         ?>
     </p>
-
-    <?php // La tabla de debug se queda aquí, solo para el Final Quiz
-    if ( $is_final_quiz && current_user_can( 'manage_options' ) ) :
-    ?>
-        <table style="width:100%; border-collapse: collapse; font-size: 14px; margin-top: 20px; border: 1px dashed #ccc; display:none;">
-            <caption style="font-weight: bold; padding: 5px;">Admin Debug Info</caption>
-            <tbody>
-                <!-- ... aquí siguen todas tus filas de debug tal cual estaban ... -->
-            </tbody>
-        </table>
-    <?php endif; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>

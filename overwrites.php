@@ -38,17 +38,12 @@ function politeia_override_infobar_course( $filepath, $filename, $legacy_file, $
          && false !== strpos( $filepath, 'modules/infobar' ) ) {
 
         // Ruta corregida (nota “overrides”, no “overwrites”)
-        $override = __DIR__ 
+        $override = __DIR__
                   . '/overrides/learndash/ld30/modules/infobar/'
                   . basename( $filename );
 
-        error_log( "[Politeia] Buscando override en → {$override}" );
-
         if ( file_exists( $override ) ) {
-            error_log( "[Politeia] ¡Override encontrado y usado! → {$override}" );
             return $override;
-        } else {
-            error_log( "[Politeia] Override NO encontrado en: {$override}" );
         }
     }
 
