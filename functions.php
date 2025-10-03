@@ -234,42 +234,72 @@ function politeia_show_quiz_gate_message( $course_id, $user_id ) {
 add_action( 'wp_footer', 'politeia_add_quiz_result_button' );
 
 function politeia_add_quiz_result_button() {
-	if ( ! is_singular( 'sfwd-quiz' ) ) {
-		return;
-	}
+        if ( ! is_singular( 'sfwd-quiz' ) ) {
+                return;
+        }
 
-	// Asegura que el usuario esté conectado y se haya completado el quiz
-	$user_id = get_current_user_id();
-	if ( ! $user_id ) return;
+        // Asegura que el usuario esté conectado y se haya completado el quiz
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) return;
 
-	$quiz_id = get_the_ID();
-	$related_course_id = get_post_meta( $quiz_id, '_related_course', true );
+        $quiz_id = get_the_ID();
+        $course_id = class_exists( 'PoliteiaCourse' )
+            ? PoliteiaCourse::getCourseFromQuiz( (int) $quiz_id )
+            : 0;
 
-	if ( ! $related_course_id ) return;
+        if ( ! $course_id ) {
+            $course_id = (int) get_post_meta( $quiz_id, '_related_course', true );
+        }
 
-	// Obtener ID del producto que vende este curso
-	$product_id = wc_get_products([
-		'limit'      => 1,
-		'status'     => 'publish',
-		'type'       => 'simple',
-		'meta_key'   => '_related_course',
-		'meta_value' => $related_course_id,
-		'return'     => 'ids',
-	])[0] ?? null;
+        if ( ! $course_id ) {
+            return;
+        }
 
-	if ( ! $product_id ) return;
+        $course_object = class_exists( 'PoliteiaCourse' )
+            ? new PoliteiaCourse( $course_id )
+            : null;
 
-	$course_url  = get_permalink( $related_course_id );
-	$product_url = get_permalink( $product_id );
-	$has_bought  = wc_customer_bought_product( '', $user_id, $product_id );
+        $product_id = $course_object ? $course_object->getRelatedProductId() : 0;
 
-	$link_url  = $has_bought ? $course_url : $product_url;
-	$link_text = $has_bought ? __( 'Ir al Curso', 'politeia' ) : __( 'Comprar Curso', 'politeia' );
+        if ( ! $product_id ) {
+            $product_id = wc_get_products([
+                'limit'      => 1,
+                'status'     => 'publish',
+                'type'       => 'simple',
+                'meta_key'   => '_related_course',
+                'meta_value' => $course_id,
+                'return'     => 'ids',
+            ])[0] ?? 0;
+        }
 
-	?>
-	<script>
-		document.addEventListener("DOMContentLoaded", function () {
-			const actionsContainer = document.querySelector('.ld-quiz-actions');
+        if ( ! $product_id ) {
+            return;
+        }
+
+        $course_url    = get_permalink( $course_id );
+        $product_url   = get_permalink( $product_id );
+        $has_access    = $course_object ? $course_object->isUserEnrolled( $user_id ) : false;
+        $has_purchased = wc_customer_bought_product( '', $user_id, $product_id );
+
+        if ( ! $has_purchased && class_exists( 'PoliteiaOrderFinder' ) ) {
+            $order_finder = new PoliteiaOrderFinder();
+            $order_id     = $order_finder->findOrderForUser( $user_id, $product_id );
+
+            if ( $order_id ) {
+                $order = wc_get_order( $order_id );
+                if ( $order && $order->has_status( [ 'completed', 'processing' ] ) ) {
+                    $has_purchased = true;
+                }
+            }
+        }
+
+        $link_url  = ( $has_access || $has_purchased ) ? $course_url : $product_url;
+        $link_text = ( $has_access || $has_purchased ) ? __( 'Ir al Curso', 'politeia' ) : __( 'Comprar Curso', 'politeia' );
+
+        ?>
+        <script>
+                document.addEventListener("DOMContentLoaded", function () {
+                        const actionsContainer = document.querySelector('.ld-quiz-actions');
 			if (!actionsContainer) return;
 
 			const button = document.createElement('a');

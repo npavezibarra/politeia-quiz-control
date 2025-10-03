@@ -131,6 +131,18 @@ $has_bought = false;
 
 if ( $current_user_id && $related_product_id && function_exists( 'wc_customer_bought_product' ) ) {
     $has_bought = wc_customer_bought_product( '', $current_user_id, $related_product_id );
+
+    if ( ! $has_bought && class_exists( 'PoliteiaOrderFinder' ) ) {
+        $order_finder = new PoliteiaOrderFinder();
+        $order_id     = $order_finder->findOrderForUser( $current_user_id, $related_product_id );
+
+        if ( $order_id ) {
+            $order = wc_get_order( $order_id );
+            if ( $order && $order->has_status( [ 'completed', 'processing' ] ) ) {
+                $has_bought = true;
+            }
+        }
+    }
 }
 
 $first_attempt_summary = null;
