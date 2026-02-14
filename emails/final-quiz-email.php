@@ -3,65 +3,81 @@
  * Template para el correo de notificación del quiz final.
  */
 
-if ( ! defined( 'ABSPATH' ) ) {
+if (!defined('ABSPATH')) {
 	exit;
 }
 
-function politeia_generate_quickchart_url( $value ) {
-	$config = [
-		'type' => 'doughnut',
-		'data' => [
-			'datasets' => [[
-				'data' => [ $value, 100 - $value ],
-				'backgroundColor' => ['#f9c600', '#eeeeee'],
-				'borderWidth' => 0
-			]]
-		],
-		'options' => [
-			'cutout' => '10%',
-			'plugins' => [
-				'legend' => [ 'display' => false ],
-				'tooltip' => [ 'enabled' => false ],
-				'datalabels' => [ 'display' => false ],
-				'doughnutlabel' => [
-					'labels' => [[
-						'text' => $value . '%',
-						'font' => [
-							'size' => 24,
-							'weight' => 'bold'
-						],
-						'color' => '#333'
-					]]
+if (!function_exists('politeia_generate_quickchart_url')) {
+	function politeia_generate_quickchart_url($value, $label = '')
+	{
+		$config = [
+			'type' => 'doughnut',
+			'data' => [
+				'datasets' => [
+					[
+						'data' => [$value, 100 - $value],
+						'backgroundColor' => ['#ffd000', '#eeeeee'],
+						'borderWidth' => 0
+					]
+				]
+			],
+			'options' => [
+				'cutoutPercentage' => 75,
+				'legend' => ['display' => false],
+				'plugins' => [
+					'datalabels' => ['display' => false],
+					'doughnutlabel' => [
+						'labels' => [
+							[
+								'text' => $label,
+								'font' => [
+									'size' => 22,
+									'family' => 'sans-serif',
+									'weight' => 'bold'
+								],
+								'color' => '#666666'
+							],
+							[
+								'text' => $value . '%',
+								'font' => [
+									'size' => 40,
+									'family' => 'sans-serif',
+									'weight' => 'bold'
+								],
+								'color' => '#000000'
+							]
+						]
+					]
 				]
 			]
-		],
-		'plugins' => ['doughnutlabel']
-	];
+		];
 
-	return 'https://quickchart.io/chart?c=' . urlencode( json_encode( $config ) );
+		return 'https://quickchart.io/chart?c=' . urlencode(json_encode($config));
+	}
 }
 
-function pqc_get_final_quiz_email_content( $quiz_data, $user ) {
-	$debug_data = pqc_get_quiz_debug_data( $quiz_data, $user );
+function pqc_get_final_quiz_email_content($quiz_data, $user)
+{
+	$debug_data = pqc_get_quiz_debug_data($quiz_data, $user);
 
 	$subject = '✔️ Final Quiz Completed: ' . $debug_data['quiz_title'];
 
-	$logo_url = content_url( 'uploads/2025/06/LogoNewBlackPoliteia.svg' );
+	$logo_url = content_url('uploads/2025/06/LogoNewBlackPoliteia.svg');
 
-	$first_score = (int) preg_replace( '/[^0-9]/', '', $debug_data['first_quiz_attempt'] ?? '0' );
-	$final_score = (int) preg_replace( '/[^0-9]/', '', $debug_data['final_quiz_attempt'] ?? '0' );
+	$first_score = (int) preg_replace('/[^0-9]/', '', $debug_data['first_quiz_attempt'] ?? '0');
+	$final_score = (int) preg_replace('/[^0-9]/', '', $debug_data['final_quiz_attempt'] ?? '0');
 
-	$first_score = min( 100, max( 0, $first_score ) );
-	$final_score = min( 100, max( 0, $final_score ) );
+	$first_score = min(100, max(0, $first_score));
+	$final_score = min(100, max(0, $final_score));
 
-	$progreso = $final_score - $first_score;
+	$progreso = round($final_score - $first_score, 2);
 
 	// Mensaje dinámico para knowledge-increase
-	if ( $progreso > 0 ) {
+	if ($progreso > 0) {
 		$mensaje_knowledge = '
 			<h2 style="margin: 0; text-align: center; color: #000;">You improved your score by <strong style="color: #4CAF50;">+' . $progreso . ' points</strong>. Great job!</h2>
 		';
-	} elseif ( $progreso === 0 ) {
+	} elseif ($progreso === 0) {
 		$mensaje_knowledge = '
 			<h2 style="margin: 0; text-align: center; color: #000;">Your knowledge has been reinforced. Your progress was <strong>0 points</strong>.</h2>
 		';
@@ -74,52 +90,72 @@ function pqc_get_final_quiz_email_content( $quiz_data, $user ) {
 		';
 	}
 
-	$chart_url_final = politeia_generate_quickchart_url( $final_score );
-	$chart_url_first = politeia_generate_quickchart_url( $first_score );
+	$chart_url_final = politeia_generate_quickchart_url($final_score, 'Final Quiz Result');
+	$chart_url_first = politeia_generate_quickchart_url($first_score, 'First Quiz Result');
 
-	$courses_url = home_url( '/courses/' );
+	$courses_url = home_url('/courses/');
 
-	$body  = '<div id="pqc-email-wrapper" style="background-color: #f8f8f8; padding: 30px 0;">';
-	$body .= '<div id="pqc-email-card" style="background: white; max-width: 700px; margin: auto; border-radius: 6px; border: 1px solid #d5d5d5; font-family: sans-serif; color: #333;">';
+	$body = '<div style="background-color: #f8f8f8; padding: 30px 0;">'; // Wrapper externo
 
-	$body .= '<div id="pqc-logo-section" style="text-align: center; padding: 20px;">';
-	$body .= '<img src="' . esc_url( $logo_url ) . '" alt="Politeia Logo" style="max-width: 200px;">';
-	$body .= '</div>';
+	// Tabla Principal (Container)
+	$body .= '<table align="center" width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; margin: 0 auto; max-width: 600px; width: 100%; border: 1px solid #d5d5d5; border-radius: 6px; font-family: sans-serif;">';
 
-	// mensaje estático
-	$body .= '<div id="pqc-congrats-message" style="text-align: center; padding: 20px 30px; border-top: 1px solid black; border-bottom: 1px solid black;">';
-	$body .= '<h2 style="margin: 0;">🎉 Congratulations!</h2>';
-	$body .= '<p style="margin: 5px 0;">You finished the course <strong>' . esc_html( $debug_data['course_title'] ) . '</strong>.</p>';
-	$body .= '</div>';
+	// 1. Logo
+	$body .= '<tr><td align="center" style="padding: 30px 0;">';
+	$body .= '<img src="' . esc_url($logo_url) . '" alt="Politeia Logo" width="180" style="display: block; margin: 0 auto; max-width: 180px; height: auto;">';
+	$body .= '</td></tr>';
 
-	// mensaje dinámico
-	$body .= '<div id="pqc-knowledge-increase" style="text-align: center; padding: 40px 30px; border-bottom: 1px solid black;">';
+	// Separator
+	$body .= '<tr><td style="border-bottom: 1px solid #eeeeee;"></td></tr>';
+
+	// 2. Static Congrats Message
+	$body .= '<tr><td align="center" style="padding: 30px 30px 0 30px;">';
+	$body .= '<h2 style="margin: 0; color: #333;">🎉 Congratulations!</h2>';
+	$body .= '<p style="margin: 10px 0; color: #555; font-size: 18px;">You finished the course <strong>' . esc_html($debug_data['course_title']) . '</strong>.</p>';
+	$body .= '</td></tr>';
+
+	// Separator (small)
+	$body .= '<tr><td style="padding-top: 20px;"></td></tr>';
+
+	// 3. Dynamic Knowledge Message
+	$body .= '<tr><td align="center" style="padding: 0 30px 30px 30px; border-bottom: 1px solid #eeeeee;">';
 	$body .= $mensaje_knowledge;
+	$body .= '</td></tr>';
+
+	// 4. Charts Section (Nested Table)
+	$body .= '<tr><td align="center" style="padding: 30px 10px;">';
+	$body .= '<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>';
+
+	// Chart 1: Final Quiz
+	$body .= '<td width="50%" align="center" valign="top" style="padding: 0 5px;">';
+	$body .= '<img src="' . esc_url($chart_url_final) . '" alt="Final Score" width="220" style="display: block; max-width: 100%; height: auto;">';
+	$body .= '</td>';
+
+	// Chart 2: First Quiz
+	$body .= '<td width="50%" align="center" valign="top" style="padding: 0 5px;">';
+	$body .= '<img src="' . esc_url($chart_url_first) . '" alt="First Score" width="220" style="display: block; max-width: 100%; height: auto;">';
+	$body .= '</td>';
+
+	$body .= '</tr></table>';
+	$body .= '</td></tr>';
+
+	// Separator
+	$body .= '<tr><td style="border-bottom: 1px solid #eeeeee;"></td></tr>';
+
+	// 5. Footer CTA
+	$body .= '<tr><td align="center" style="padding: 30px;">';
+	$body .= '<p style="margin-top:0; color: #555;">📚 Continue learning! Check out our full course catalogue:</p>';
+	$body .= '<a href="' . esc_url($courses_url) . '" style="display: inline-block; background-color: #000000; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Browse Courses</a>';
+	$body .= '</td></tr>';
+
+	// End Main Table
+	$body .= '</table>';
+
+	// End Wrapper
 	$body .= '</div>';
-
-	$body .= '<div id="pqc-results-graphs" style="display: flex; justify-content: space-around; align-items: center; padding: 30px 10px; gap: 20px; flex-wrap: wrap; border-bottom: 1px solid black;">';
-
-	$body .= '<div id="pqc-final-quiz" style="text-align: center;">';
-	$body .= '<h3 style="margin-bottom: 10px;">Final Quiz Result</h3>';
-	$body .= '<img src="' . esc_url( $chart_url_final ) . '" alt="Final Score" style="max-width: 300px;">';
-	$body .= '</div>';
-
-	$body .= '<div id="pqc-first-quiz" style="text-align: center;">';
-	$body .= '<h3 style="margin-bottom: 10px;">First Quiz Result</h3>';
-	$body .= '<img src="' . esc_url( $chart_url_first ) . '" alt="First Score" style="max-width: 300px;">';
-	$body .= '</div>';
-
-	$body .= '</div>';
-
-	$body .= '<div id="pqc-footer-cta" style="text-align: center; padding: 20px 30px;">';
-	$body .= '<p>📚 Continue learning! Check out our full course catalogue:</p><br>';
-	$body .= '<p><a href="' . esc_url( $courses_url ) . '" style="background-color: #000000; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Browse Courses</a></p>';
-	$body .= '</div>';
-
-	$body .= '</div></div>';
 
 	return [
 		'subject' => $subject,
-		'body'    => $body,
+		'body' => $body,
 	];
 }
