@@ -96,6 +96,121 @@ if (0 < $progress['percentage'] && 100 !== $progress['percentage']) {
 // del curso (imagen o video) y los botones de acción.
 // =============================================================================
 ?>
+<?php
+// SVG icons for buttons
+$icon_quiz = '<svg style="width:20px;height:20px;margin-right:8px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg>';
+$icon_cart = '<svg style="width:20px;height:20px;margin-right:8px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"></circle><circle cx="19" cy="21" r="1"></circle><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path></svg>';
+?>
+<style>
+    /* ── Shared base for ALL sidebar buttons ── */
+    .bb-single-course-sidebar .btn-advance,
+    .bb-single-course-sidebar a.btn-advance,
+    .bb-single-course-sidebar a.btn-advance.ld-primary-background,
+    .bb-single-course-sidebar .btn-join,
+    .bb-single-course-sidebar a.btn-join,
+    .bb-single-course-sidebar #btn-join,
+    .bb-single-course-sidebar #learndash-course-enroll-button,
+    body .bb-single-course-sidebar .btn-advance,
+    body .bb-single-course-sidebar a.btn-advance.ld-primary-background {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        padding: 12px !important;
+        font-weight: 600 !important;
+        font-size: 16px !important;
+        cursor: pointer !important;
+        border: none !important;
+        border-top: none !important;
+        border-right: none !important;
+        border-bottom: none !important;
+        border-left: none !important;
+        border-width: 0 !important;
+        outline: none !important;
+        text-decoration: none !important;
+        border-radius: 6px !important;
+        transition: all 0.2s ease !important;
+        box-sizing: border-box !important;
+    }
+
+    .bb-single-course-sidebar .btn-advance:active,
+    .bb-single-course-sidebar a.btn-advance:active,
+    .bb-single-course-sidebar .btn-join:active,
+    .bb-single-course-sidebar a.btn-join:active {
+        transform: scale(0.95) !important;
+    }
+
+    /* ── "Take First Quiz" — gold gradient ── */
+    .bb-single-course-sidebar .btn-advance,
+    .bb-single-course-sidebar a.btn-advance,
+    .bb-single-course-sidebar a.btn-advance.ld-primary-background,
+    body .bb-single-course-sidebar .btn-advance,
+    body .bb-single-course-sidebar a.btn-advance.ld-primary-background {
+        background: linear-gradient(135deg, #8A6B1E, #C79F32, #E9D18A) !important;
+        background-color: transparent !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+    }
+
+    .bb-single-course-sidebar .btn-advance:hover,
+    .bb-single-course-sidebar a.btn-advance:hover,
+    .bb-single-course-sidebar a.btn-advance.ld-primary-background:hover {
+        opacity: 0.95 !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+        color: #ffffff !important;
+    }
+
+    /* ── "Comprar Curso" — black bg, white text, NO border ── */
+    .bb-single-course-sidebar .btn-join,
+    .bb-single-course-sidebar a.btn-join,
+    .bb-single-course-sidebar #btn-join,
+    body .bb-single-course-sidebar .btn-join,
+    body .bb-single-course-sidebar a.btn-join,
+    .bb-single-course-sidebar .btn-join:hover,
+    .bb-single-course-sidebar a.btn-join:hover,
+    .bb-single-course-sidebar #btn-join:hover,
+    .bb-single-course-sidebar .btn-join:focus,
+    .bb-single-course-sidebar .btn-join:active,
+    .bb-single-course-sidebar .btn-join:visited {
+        background: #000000 !important;
+        background-color: #000000 !important;
+        color: #ffffff !important;
+        border: 0 none transparent !important;
+        border-top: 0 none transparent !important;
+        border-right: 0 none transparent !important;
+        border-bottom: 0 none transparent !important;
+        border-left: 0 none transparent !important;
+        border-width: 0 !important;
+        border-style: none !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }
+
+    .bb-single-course-sidebar .btn-join:hover,
+    .bb-single-course-sidebar a.btn-join:hover,
+    .bb-single-course-sidebar #btn-join:hover {
+        background: #222222 !important;
+        background-color: #222222 !important;
+    }
+
+    /* ── Price spacing ── */
+    .bb-single-course-sidebar .bb-course-type {
+        margin-top: 20px !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+        font-family: 'Poppins', sans-serif !important;
+    }
+</style>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var btnJoin = document.querySelector('.bb-single-course-sidebar .btn-join, .bb-single-course-sidebar #btn-join');
+        if (btnJoin && !btnJoin.querySelector('svg')) {
+            var icon = '<svg style="width:20px;height:20px;margin-right:8px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"></circle><circle cx="19" cy="21" r="1"></circle><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path></svg>';
+            btnJoin.innerHTML = icon + '<span>' + btnJoin.textContent.trim() + '</span>';
+        }
+    });
+</script>
 <div class="bb-single-course-sidebar bb-preview-wrap">
     <div class="bb-ld-sticky-sidebar">
         <div class="widget bb-enroll-widget">
@@ -227,7 +342,7 @@ if (0 < $progress['percentage'] && 100 !== $progress['percentage']) {
                             <a id="first-test-button" href="<?php echo esc_url($quiz_login_redirect_url); ?>"
                                 class="btn-advance-start btn-advance ld-primary-background"
                                 style="display:block;width:100%;margin:12px 0;">
-                                <?php esc_html_e('Take First Quiz', 'buddyboss-theme'); ?>
+                                <?php echo $icon_quiz; ?>         <?php esc_html_e('Take First Quiz', 'buddyboss-theme'); ?>
                             </a>
                             <?php
                         }
@@ -293,7 +408,7 @@ if (0 < $progress['percentage'] && 100 !== $progress['percentage']) {
                             <a id="first-test-button" href="<?php echo esc_url($first_quiz_url); ?>"
                                 class="btn-advance-start btn-advance ld-primary-background"
                                 style="display:block;width:100%;margin:12px 0;">
-                                <?php esc_html_e('Take First Quiz', 'buddyboss-theme'); ?>
+                                <?php echo $icon_quiz; ?>         <?php esc_html_e('Take First Quiz', 'buddyboss-theme'); ?>
                             </a>
                             <?php
                             // Start Course DESHABILITADO
@@ -343,7 +458,7 @@ if (0 < $progress['percentage'] && 100 !== $progress['percentage']) {
                                     <a id="first-test-button" href="<?php echo esc_url($first_quiz_url); ?>"
                                         class="btn-advance-start btn-advance ld-primary-background"
                                         style="display:block;width:100%;margin:12px 0;">
-                                        <?php esc_html_e('Take First Quiz', 'buddyboss-theme'); ?>
+                                        <?php echo $icon_quiz; ?>                 <?php esc_html_e('Take First Quiz', 'buddyboss-theme'); ?>
                                     </a>
                                 <?php }
                             }
@@ -421,7 +536,7 @@ if (0 < $progress['percentage'] && 100 !== $progress['percentage']) {
                                     <a id="first-test-button" href="<?php echo esc_url($first_quiz_url); ?>"
                                         class="btn-advance-start btn-advance ld-primary-background"
                                         style="display:block;width:100%;margin:12px 0;">
-                                        <?php esc_html_e('Take First Quiz', 'buddyboss-theme'); ?>
+                                        <?php echo $icon_quiz; ?>                 <?php esc_html_e('Take First Quiz', 'buddyboss-theme'); ?>
                                     </a>
                                 <?php }
                             }
